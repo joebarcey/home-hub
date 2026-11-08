@@ -67,14 +67,17 @@
     if (window.__SYNC_URL__) return window.__SYNC_URL__;
     const ok = u => /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u);
     let u = '';
-    try {
-      const m = location.hash.match(/[#&]sync=([^&]+)/);
-      if (m){
-        const v = decodeURIComponent(m[1]);
-        if (ok(v)){ u = v; try { localStorage.setItem('mrbd-home-hub-sync', u); } catch(e){} }
-        try { history.replaceState(null, '', '#/'); } catch(e){}
-      }
-    } catch(e){}
+    // The link can arrive as ?sync=... (kept in the address) or #sync=... (older links)
+    try { const q = new URLSearchParams(location.search).get('sync'); if (q && ok(q)) u = q; } catch(e){}
+    if (!u){ try { const m = location.hash.match(/[#&]sync=([^&]+)/); if (m){ const v = decodeURIComponent(m[1]); if (ok(v)) u = v; } } catch(e){} }
+    if (u){
+      try { localStorage.setItem('mrbd-home-hub-sync', u); } catch(e){}
+      // Keep it in the address as ?sync=..., so a home-screen icon or bookmark saved from here still syncs
+      try {
+        if (/sync=/.test(location.hash) || new URLSearchParams(location.search).get('sync') !== u)
+          history.replaceState(null, '', location.pathname + '?sync=' + u + '#/');
+      } catch(e){}
+    }
     if (!u){ try { const v = localStorage.getItem('mrbd-home-hub-sync') || ''; if (ok(v)) u = v; } catch(e){} }
     return u;
   }
