@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Hub</title>
+<meta name="description" content="One-stop hub: projects, honey-do list, notes and shopping on Meta Ray-Ban Display">
+<meta name="mrbd-web-app-capable" content="yes">
+<style>
+  /* Additive display: black is see-through, bright colors are visible. */
+  :root{
+    --bg:#000; --fg:#f2f2f2; --dim:#9a9a9a; --accent:#5fd3ff; --good:#7dff9a; --warn:#ffb35c; --line:#2a2a2a;
+    --fs: clamp(18px, 4.6vw, 30px);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--fs);overflow:hidden}
+  #app{height:100vh;display:flex;flex-direction:column;padding:3vw 4vw}
+  header{display:flex;align-items:center;gap:2vw;flex:0 0 auto;margin-bottom:2vw}
+  header h1{font-size:1.15em;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sub{color:var(--dim);font-size:.75em}
+  .scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:4px}
+  button,input,textarea{font:inherit;color:inherit}
+  button{background:transparent;border:2px solid var(--line);border-radius:14px;padding:.45em .7em;text-align:left;cursor:pointer}
+  button:focus,input:focus,.note-body:focus{outline:4px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
+  .row{display:flex;gap:2vw;margin-bottom:2vw;align-items:stretch}
+  .row .main{flex:1;display:flex;justify-content:space-between;align-items:center;gap:2vw;min-width:0}
+  .main.block{display:block}
+  .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+  .x{flex:0 0 auto;color:var(--dim);text-align:center;min-width:2.2em}
+  .done .t{color:var(--dim);text-decoration:line-through}
+  .check{flex:0 0 auto;color:var(--good)}
+  .tabs{display:flex;gap:2vw;flex:0 0 auto;margin-bottom:2vw}
+  .tabs button{flex:1;text-align:center;font-size:.8em;padding:.4em .2em}
+  .tabs button[aria-selected="true"]{border-color:var(--fg);background:#1a1a1a}
+  .cnt{display:inline-block;margin-left:.3em;min-width:1.3em;padding:0 .3em;border-radius:1em;background:#262626;color:var(--fg);font-size:.8em;line-height:1.4}
+  .cnt.zero{color:var(--dim);background:transparent}
+  .add{display:flex;gap:2vw;flex:0 0 auto;margin-top:1vw}
+  .add input{flex:1;min-width:0;background:#111;border:2px solid var(--line);border-radius:14px;padding:.45em .7em}
+  .add button{color:var(--accent)}
+  .bar{height:.35em;background:#222;border-radius:1em;overflow:hidden;margin-top:.25em}
+  .bar i{display:block;height:100%;background:var(--good)}
+  .empty{color:var(--dim);text-align:center;padding:2em 1em;line-height:1.4}
+  .danger{color:var(--warn)}
+  .back{flex:0 0 auto;padding:.3em .6em}
+  .menu .main{padding:.6em .8em}
+  .menu .icon{margin-right:.5em}
+  .note-body{white-space:pre-wrap;line-height:1.4;border:2px solid var(--line);border-radius:14px;padding:.6em .8em;margin-bottom:2vw}
+  .small{font-size:.8em}
+  a.main{text-decoration:none;color:inherit;border:2px solid var(--line);border-radius:14px;padding:.45em .7em}
+  a.main:focus{outline:4px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
+  .phone{color:var(--good)}
+  #toast{position:fixed;left:4vw;right:4vw;bottom:3vw;background:#111;border:2px solid var(--good);border-radius:14px;padding:.5em .8em;font-size:.8em;line-height:1.35;display:none}
+  #sync.ok{color:var(--good)} #sync.off{color:var(--warn)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" role="status"></div>
+<script>
+(function(){
+  // ===== SYNC SETTING =====
+  // Served by the Google Apps Script: the address is filled in automatically.
+  // On a regular web host, the sync link arrives once in the address (#sync=...), is remembered on this
+  // device, and is then removed from the address, so it never has to live in the public file.
+  function findSyncUrl(){
+    if (window.__SYNC_URL__) return window.__SYNC_URL__;
+    const ok = u => /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u);
+    let u = '';
+    try {
+      const m = location.hash.match(/[#&]sync=([^&]+)/);
+      if (m){
+        const v = decodeURIComponent(m[1]);
+        if (ok(v)){ u = v; try { localStorage.setItem('mrbd-home-hub-sync', u); } catch(e){} }
+        try { history.replaceState(null, '', '#/'); } catch(e){}
+      }
+    } catch(e){}
+    if (!u){ try { const v = localStorage.getItem('mrbd-home-hub-sync') || ''; if (ok(v)) u = v; } catch(e){} }
+    return u;
+  }
+  const SYNC_URL = findSyncUrl();
+
+  const KEY = 'mrbd-home-hub-v1';
+  const DIRTY_KEY = KEY + '-dirty';
+  const OLD_TRACKER_KEY = 'mrbd-project-tracker-v1';
+  const PROJECT_TABS = [
+    {id:'goals', label:'Goals', ph:'Add a goal'},
+    {id:'materials', label:'Materials', ph:'Add a material'},
+    {id:'steps', label:'Steps', ph:'Add a step'}
+  ];
+  // Home menu. To add a new simple checklist section, add a line here.
+  const SECTIONS = [
+    {id:'projects', icon:'🛠', label:'Projects'},
+    {id:'honeydo',  icon:'🏠', label:'Honey-Do', kind:'priority'},
+    {id:'notes',    icon:'📝', label:'Notes'},
+    {id:'shopping', icon:'🛒', label:'Shopping', kind:'list', ph:'Add an item'},
+    {id:'contacts', icon:'📞', label:'Contacts'}
+  ];
+  // Note categories. Add another tab by adding a line here.
+  const NOTE_TABS = [
+    {id:'work', label:'💼 Work', ph:'New work note'},
+    {id:'personal', label:'🏡 Personal', ph:'New personal note'}
+  ];
+
+  const app = document.getElementById('app');
+  let mem = null;     // fallback if storage is blocked
+  let armed = null;   // id armed for a two-press delete
+
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  const esc = s => { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; };
+  const now = () => Date.now();
+  const live = a => (a||[]).filter(x=>!x.del);
+  const touch = x => { x.u = now(); };
+  const remove = x => { x.del = true; x.u = now(); };   // kept as a "deleted" marker so the other device learns about it
+  const newItem = text => ({id:uid(), text, done:false, c:now(), u:now()});   // c = when it was added
+
+  // ---------- storage ----------
+  function load(){
+    let d = null;
+    try { const s = localStorage.getItem(KEY); if (s) d = JSON.parse(s); } catch(e){}
+    if (!d) d = mem || {};
+    SECTIONS.forEach(s=>{ if(!Array.isArray(d[s.id])) d[s.id]=[]; });
+    if (!d.importedTracker){
+      try {
+        const old = JSON.parse(localStorage.getItem(OLD_TRACKER_KEY) || 'null');
+        if (old && old.projects) old.projects.forEach(p=>{ if(!d.projects.some(x=>x.id===p.id)) d.projects.push(p); });
+      } catch(e){}
+      d.importedTracker = true;
+    }
+    return d;
+  }
+  let data = load();
+  let dirty = true;
+  try { dirty = localStorage.getItem(DIRTY_KEY) !== '0'; } catch(e){}
+  function setDirty(v){ dirty = v; try { localStorage.setItem(DIRTY_KEY, v?'1':'0'); } catch(e){} }
+  function store(){ mem = data; try { localStorage.setItem(KEY, JSON.stringify(data)); } catch(e){} }
+  function save(){ store(); setDirty(true); scheduleSync(); }   // call after every change you make
+  store();
+
+  // ---------- sync ----------
+  const SUBS = PROJECT_TABS.map(t=>t.id);
+  function mergeList(a, b, isProject){
+    const m = new Map();
+    (a||[]).forEach(x=>m.set(x.id, x));
+    (b||[]).forEach(y=>{
+      const x = m.get(y.id);
+      if (!x){ m.set(y.id, y); return; }
+      const out = Object.assign({}, (y.u||0) > (x.u||0) ? y : x);
+      if (isProject) SUBS.forEach(k=>out[k]=mergeList(x[k], y[k], false));
+      m.set(y.id, out);
+    });
+    return [...m.values()];
+  }
+  function mergeData(a, b){
+    const out = Object.assign({}, a, {importedTracker:true});
+    SECTIONS.forEach(s=>out[s.id]=mergeList(a[s.id], b && b[s.id], s.id==='projects'));
+    return out;
+  }
+  // Apply the other device's changes INTO the data already on screen (same objects),
+  // so whatever screen is open keeps working after a background sync.
+  function replaceObj(t, s, keep){
+    Object.keys(t).forEach(k=>{ if(!(k in s) && !keep.includes(k)) delete t[k]; });
+    Object.keys(s).forEach(k=>{ if(!keep.includes(k)) t[k]=s[k]; });
+  }
+  function mergeListInto(local, remote, isProject){
+    const byId = new Map(local.map(x=>[x.id, x]));
+    (remote||[]).forEach(y=>{
+      const x = byId.get(y.id);
+      if (!x){ local.push(y); byId.set(y.id, y); return; }
+      if ((y.u||0) > (x.u||0)) replaceObj(x, y, isProject ? SUBS : []);
+      if (isProject) SUBS.forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; mergeListInto(x[k], y[k], false); });
+    });
+  }
+  function mergeInto(d, remote){
+    SECTIONS.forEach(s=>{ if(!Array.isArray(d[s.id])) d[s.id]=[]; mergeListInto(d[s.id], remote && remote[s.id], s.id==='projects'); });
+    d.importedTracker = true;
+  }
+
+  let syncing=false, again=false, syncTimer=null, syncStatus=SYNC_URL?'':'none', lastSync=0;
+  function scheduleSync(){ if(!SYNC_URL) return; clearTimeout(syncTimer); syncTimer=setTimeout(sync, 700); }
+  function showStatus(){
+    const el=document.getElementById('sync'); if(!el) return;
+    el.className = 'sub ' + syncStatus;
+    el.textContent = syncStatus==='ok' ? '☁ synced ' + new Date(lastSync).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})
+      : syncStatus==='off' ? '☁ offline' : syncStatus==='busy' ? '☁ syncing…' : syncStatus==='none' ? 'this device only' : '';
+  }
+  function setStatus(s){ syncStatus=s; showStatus(); }
+  async function sync(){
+    if (!SYNC_URL) return;
+    if (syncing){ again=true; return; }
+    syncing=true; setStatus('busy');
+    try {
+      const r = await fetch(SYNC_URL + (SYNC_URL.includes('?')?'&':'?') + 'action=get&t=' + now(), {cache:'no-store'});
+      if (!r.ok) throw new Error('get ' + r.status);
+      const remote = await r.json();
+      const before = JSON.stringify(data);
+      mergeInto(data, remote || {});
+      store();
+      const remoteNorm = mergeData(remote||{}, {});
+      if (dirty || JSON.stringify(mergeData(remoteNorm, data)) !== JSON.stringify(remoteNorm)){
+        setDirty(false);
+        try {
+          const p = await fetch(SYNC_URL, {method:'POST', body: JSON.stringify(data)});
+          if (!p.ok) throw new Error('post ' + p.status);
+        } catch(e){ setDirty(true); throw e; }
+      }
+      lastSync = now(); setStatus('ok');
+      if (JSON.stringify(data) !== before) refresh();
+    } catch(e){ setStatus('off'); }
+    syncing=false;
+    if (again){ again=false; sync(); }
+  }
+
+  // Re-draw after new data arrives without yanking the cursor around.
+  const FOCUS_ATTRS=['data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  function refresh(){
+    const a=document.activeElement;
+    if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
+    let sel=null;
+    if (a && app.contains(a)){
+      if (a.id) sel='#'+a.id;
+      else for (const k of FOCUS_ATTRS) if (a.hasAttribute(k)){ sel=`[${k}="${a.getAttribute(k)}"]`; break; }
+    }
+    render(); if (sel) focusSel(sel);
+  }
+
+  // ---------- routing ----------
+  let initialHash = '#/';
+  try { initialHash = /sync=/.test(location.hash) ? '#/' : (location.hash || '#/'); } catch(e){}
+  let stack = [initialHash];
+  let histOK = true;
+  function route(){
+    const h = stack[stack.length-1].replace(/^#\/?/, '').split('/');
+    return { a:h[0]||'', b:h[1]||'', c:h[2]||'' };
+  }
+  function go(hash, replace){
+    armed = null;
+    if (replace) stack[stack.length-1] = hash; else stack.push(hash);
+    if (histOK){
+      try { if (replace) history.replaceState(null,'',hash); else history.pushState(null,'',hash); }
+      catch(e){ histOK = false; }
+    }
+    render();
+  }
+  function goBack(fallback){
+    if (stack.length > 1){
+      if (histOK){ try { history.back(); return; } catch(e){ histOK = false; } }
+      stack.pop(); armed = null; render();
+    } else go(fallback, true);
+  }
+
+  // ---------- helpers ----------
+  function header(title, backTo, right){
+    return `<header>${backTo!==null?`<button class="back" id="back" aria-label="Back">‹</button>`:''}
+      <h1>${title}</h1>${right?`<span class="sub">${right}</span>`:''}</header>`;
+  }
+  function wireBack(fallback){ const b=document.getElementById('back'); if(b) b.onclick=()=>goBack(fallback); }
+  function addBox(ph){
+    return `<div class="add"><input id="newi" type="text" placeholder="${esc(ph)}" aria-label="${esc(ph)}"><button id="addi">＋ Add</button></div>`;
+  }
+  function wireAdd(onAdd){
+    const inp=document.getElementById('newi'), btn=document.getElementById('addi');
+    const commit=()=>{ const t=inp.value.trim(); if(t){ inp.value=''; onAdd(t); } else inp.focus(); };
+    btn.onclick=commit;
+    inp.addEventListener('change',()=>{ if(inp.value.trim()) commit(); }); // glasses composer commits fire change
+    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'&&inp.value.trim()){ e.preventDefault(); commit(); } });
+  }
+  function focusSel(sel){ const el=app.querySelector(sel); if(el) el.focus(); return !!el; }
+  function focusFirst(){ const el=app.querySelector('.scroll button, .scroll a, .scroll [tabindex], .add input'); if(el) el.focus(); }
+  const countOpen = arr => live(arr).filter(i=>!i.done).length;
+
+  // Generic checklist (Honey-Do, Shopping, and project tabs)
+  function checklistRows(arr){
+    return live(arr).map(it=>`
+      <div class="row ${it.done?'done':''}">
+        <button class="main" data-toggle="${it.id}"><span class="t">${esc(it.text)}</span><span class="check">${it.done?'✔':'○'}</span></button>
+        <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
+      </div>`).join('');
+  }
+  function wireChecklist(getArr){
+    app.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{
+      const it=getArr().find(i=>i.id===b.dataset.toggle); it.done=!it.done;
+      if (it.done) it.doneAt=now(); else delete it.doneAt;
+      touch(it); armed=null; save(); render();
+      if (!focusSel(`[data-toggle="${it.id}"]`)) focusFirst();   // it may have moved to another tab
+    });
+    app.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+      const id=b.dataset.del;
+      if(armed===id){ remove(getArr().find(i=>i.id===id)); armed=null; save(); render(); focusFirst(); }
+      else { armed=id; render(); focusSel(`[data-del="${id}"]`); }
+    });
+  }
+
+  // ---------- screens ----------
+  function renderHome(){
+    const rows = SECTIONS.map(s=>{
+      let info='';
+      if (s.id==='projects'){
+        const all=live(data.projects), hot=all.filter(p=>priOf(p)===1).length;
+        info = all.length ? `${all.length} active${hot?` · <span style="color:${PRI_COLOR[1]}">${hot} urgent</span>`:''}` : '';
+      }
+      else if (s.id==='notes'){ const n=live(data.notes).length; info = n ? `${n}` : ''; }
+      else if (s.id==='contacts'){ const n=live(data.contacts).length; info = n ? `${n}` : ''; }
+      else if (s.kind==='priority'){
+        const open=live(data[s.id]).filter(i=>!i.done), hot=open.filter(i=>priOf(i)===1).length;
+        info = open.length ? `${open.length} to do${hot?` · <span style="color:${PRI_COLOR[1]}">${hot} urgent</span>`:''}` : '';
+      }
+      else { const n=countOpen(data[s.id]); info = n ? `${n} to do` : ''; }
+      return `<div class="row menu"><button class="main" data-go="${s.id}">
+        <span><span class="icon">${s.icon}</span>${s.label}</span><span class="sub">${info}</span></button></div>`;
+    }).join('');
+    app.innerHTML = `<header><h1>Home Hub</h1><span id="sync" class="sub"></span></header><div class="scroll">${rows}</div>`;
+    showStatus();
+    app.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>go('#/'+b.dataset.go));
+    focusFirst();
+  }
+
+  // ----- Honey-Do with priorities 1 (most urgent) to 5 -----
+  const PRIS = [1,2,3,4,5];
+  const PRI_COLOR = {1:'#ff6b6b', 2:'#ffb35c', 3:'#ffe66b', 4:'#7dff9a', 5:'#5fd3ff'};
+  const priOf = i => PRIS.includes(i.pri) ? i.pri : 3;   // items from before priorities land in 3
+  let priOpen = null;   // item whose priority picker is showing
+  // Tab row for 1–5 with a count on every tab (zero included), plus an optional extra tab.
+  function priTabs(countFor, selected, extra){
+    const cnt = c => `<span class="cnt${c?'':' zero'}">${c}</span>`;
+    return `<div class="tabs" role="tablist">${PRIS.map(n=>
+      `<button role="tab" data-ptab="${n}" aria-selected="${selected===n}" aria-label="Priority ${n}, ${countFor(n)}" style="color:${PRI_COLOR[n]}">${n}${cnt(countFor(n))}</button>`
+    ).join('')}${extra?`<button role="tab" data-ptab="${extra.id}" aria-selected="${selected===extra.id}" aria-label="${extra.aria}, ${extra.count}" style="color:${extra.color}">${extra.label}${cnt(extra.count)}</button>`:''}</div>`;
+  }
+  const pickerRow = (it) => priOpen===it.id ? `<div class="row" style="margin-top:-1vw">${PRIS.map(n=>`<button class="x" data-setpri="${n}" style="flex:1;color:${PRI_COLOR[n]};${n===priOf(it)?'border-color:'+PRI_COLOR[n]:''}">${n}</button>`).join('')}</div>` : '';
+  function wirePriPicker(arr, firstSel){
+    app.querySelectorAll('[data-pri]').forEach(b=>b.onclick=()=>{
+      const id=b.dataset.pri; priOpen = priOpen===id ? null : id; armed=null; render();
+      const it=arr.find(i=>i.id===id);
+      focusSel(priOpen && it ? `[data-setpri="${priOf(it)}"]` : `[data-pri="${id}"]`);
+    });
+    app.querySelectorAll('[data-setpri]').forEach(b=>b.onclick=()=>{
+      const it=arr.find(i=>i.id===priOpen); const n=+b.dataset.setpri;
+      priOpen=null;
+      if (it && n!==priOf(it)){ it.pri=n; touch(it); save(); }
+      render(); focusFirst();
+    });
+  }
+  // Saying "priority 2 fix the fence" or "P2 fix the fence" files it under 2, whatever tab you're on.
+  function parsePri(text, fallback){
+    const m = text.match(/^\s*(?:priority|p)\s*([1-5])\b[\s:.,\-]*(.+)$/i);
+    if (!m) return {pri:fallback, text};
+    const t = m[2].trim();
+    return {pri:+m[1], text: t.charAt(0).toUpperCase() + t.slice(1)};
+  }
+
+  // Whole calendar days between two times (so something added last night is "1d" this morning).
+  function daysBetween(a, b){
+    const d0=new Date(a); d0.setHours(0,0,0,0);
+    const d1=new Date(b); d1.setHours(0,0,0,0);
+    return Math.max(0, Math.round((d1-d0)/86400000));
+  }
+  const addedAt = i => i.c || i.u || now();   // items from before day-tracking count from their last change
+  function ageBadge(i){
+    const d = daysBetween(addedAt(i), now());
+    const color = d>=30 ? 'var(--warn)' : d>=14 ? '#ffe66b' : 'var(--dim)';
+    return `<span class="sub" style="color:${color};flex:0 0 auto">${d>=30?'🕸 ':''}${d===0?'today':d+'d'}</span>`;
+  }
+
+  function renderPriority(sec, priStr){
+    const showDone = priStr==='done';
+    const arr = data[sec.id];
+    const p = PRIS.includes(+priStr) ? +priStr : (PRIS.find(n=>live(arr).some(i=>!i.done && priOf(i)===n)) || 1);
+    const items = showDone
+      ? live(arr).filter(i=>i.done).sort((a,b)=>(b.doneAt||b.u||0)-(a.doneAt||a.u||0))
+      : live(arr).filter(i=>priOf(i)===p && !i.done);
+    const rows = items.map(it=> showDone ? `
+      <div class="row done">
+        <button class="main" data-toggle="${it.id}" aria-label="Put back on the list">
+          <span class="t">${esc(it.text)}</span>
+          <span class="sub" style="flex:0 0 auto">took ${Math.max(1, daysBetween(addedAt(it), it.doneAt||it.u||now()) )}d <span style="color:${PRI_COLOR[priOf(it)]}">P${priOf(it)}</span></span>
+        </button>
+        <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
+      </div>` : `
+      <div class="row">
+        <button class="main" data-toggle="${it.id}"><span class="t">${esc(it.text)}</span>${ageBadge(it)}</button>
+        <button class="x" data-pri="${it.id}" aria-label="Change priority" style="color:${PRI_COLOR[p]}">P${p}</button>
+        <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
+      </div>${pickerRow(it)}`).join('');
+    const doneCount = live(arr).filter(i=>i.done).length;
+    app.innerHTML = header(`${sec.icon} ${sec.label}`, '#/', `${countOpen(arr)} left`) + `
+      ${priTabs(n=>live(arr).filter(i=>priOf(i)===n && !i.done).length, showDone?'done':p, {id:'done', label:'✔', aria:'Completed', color:'var(--good)', count:doneCount})}
+      <div class="scroll">
+        ${showDone && rows ? '<div class="sub" style="margin:0 0 2vw .3em">Pinch a job to put it back on the list.</div>' : ''}
+        ${rows || (showDone
+          ? '<div class="empty">Nothing finished yet.<br>The couch is calling, isn\'t it.</div>'
+          : `<div class="empty">Nothing at priority ${p}.<br>${p===1?'No fires today.':'Enjoy it while it lasts.'}</div>`)}
+        ${showDone && doneCount ? `<div class="row"><button class="main small ${armed==='clear'?'danger':''}" id="clear" style="justify-content:center">${armed==='clear'?'Press again to clear all':'🗑 Clear all completed'}</button></div>` : ''}
+      </div>` + (showDone ? '' : addBox(`Add a priority ${p} job`));
+    const doneItems = showDone ? items : [];
+    wireBack('#/');
+    wireChecklist(()=>data[sec.id]);
+    app.querySelectorAll('[data-ptab]').forEach(b=>b.onclick=()=>{ priOpen=null; go(`#/${sec.id}/${b.dataset.ptab}`, true); focusSel(`[data-ptab="${b.dataset.ptab}"]`); });
+    wirePriPicker(arr);
+    const clr=document.getElementById('clear');
+    if(clr) clr.onclick=()=>{
+      if(armed==='clear'){ doneItems.forEach(remove); armed=null; save(); render(); focusFirst(); }
+      else { armed='clear'; render(); focusSel('#clear'); }
+    };
+    if (!showDone) wireAdd(t=>{
+      const r = parsePri(t, p);
+      const it = newItem(r.text); it.pri = r.pri; arr.push(it); save();
+      if (r.pri!==p) go(`#/${sec.id}/${r.pri}`, true); else render();
+      focusSel('#newi');
+    });
+    if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
+  }
+
+  function renderList(sec){
+    const arr = data[sec.id];
+    const doneItems = live(arr).filter(i=>i.done);
+    app.innerHTML = header(`${sec.icon} ${sec.label}`, '#/', `${countOpen(arr)} left`) + `
+      <div class="scroll">
+        ${checklistRows(arr) || `<div class="empty">All clear. Enjoy it while it lasts.</div>`}
+        ${doneItems.length?`<div class="row"><button class="main small ${armed==='clear'?'danger':''}" id="clear" style="justify-content:center">${armed==='clear'?'Press again to clear':'Clear '+doneItems.length+' done'}</button></div>`:''}
+      </div>` + addBox(sec.ph);
+    wireBack('#/');
+    wireChecklist(()=>data[sec.id]);
+    const clr=document.getElementById('clear');
+    if(clr) clr.onclick=()=>{
+      if(armed==='clear'){ doneItems.forEach(remove); armed=null; save(); render(); focusFirst(); }
+      else { armed='clear'; render(); focusSel('#clear'); }
+    };
+    wireAdd(t=>{ data[sec.id].push(newItem(t)); save(); render(); focusSel('#newi'); });
+    if(!app.contains(document.activeElement)) focusFirst();
+  }
+
+  function progress(p){ const s=live(p.steps), d=s.filter(x=>x.done).length; return {n:s.length,d,pct:s.length?Math.round(d/s.length*100):0}; }
+
+  function renderProjects(priStr){
+    const all = live(data.projects);
+    const pri = PRIS.includes(+priStr) ? +priStr : (PRIS.find(n=>all.some(p=>priOf(p)===n)) || 1);
+    const rows = all.filter(p=>priOf(p)===pri).map(p=>{
+      const g=progress(p);
+      return `<div class="row"><button class="main block" data-open="${p.id}">
+        <span class="t">${esc(p.name)}</span>
+        <div class="sub">${g.n?`${g.d}/${g.n} steps done`:'No steps yet'}</div>
+        <div class="bar"><i style="width:${g.pct}%"></i></div></button>
+        <button class="x" data-pri="${p.id}" aria-label="Change priority" style="color:${PRI_COLOR[pri]}">P${pri}</button></div>${pickerRow(p)}`;
+    }).join('');
+    app.innerHTML = header('🛠 Projects', '#/', `${all.length} total`) +
+      priTabs(n=>all.filter(p=>priOf(p)===n).length, pri) +
+      `<div class="scroll">${rows || `<div class="empty">No priority ${pri} projects.<br>${pri===1?'Nothing on fire. Nice.':'Add one below.'}</div>`}</div>` + addBox(`New priority ${pri} project`);
+    wireBack('#/');
+    app.querySelectorAll('[data-ptab]').forEach(b=>b.onclick=()=>{ priOpen=null; go(`#/projects/${b.dataset.ptab}`, true); focusSel(`[data-ptab="${b.dataset.ptab}"]`); });
+    app.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{ priOpen=null; go(`#/p/${b.dataset.open}/goals`); });
+    wirePriPicker(data.projects);
+    wireAdd(t=>{
+      const r = parsePri(t, pri);
+      const p={id:uid(),name:r.text,pri:r.pri,goals:[],materials:[],steps:[],c:now(),u:now()};
+      data.projects.push(p); save();
+      if (r.pri!==pri) go(`#/projects/${r.pri}`, true);   // so Back lands on the right tab
+      go(`#/p/${p.id}/goals`);
+    });
+    if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
+  }
+
+  function renderProject(id, tabId){
+    const p=live(data.projects).find(x=>x.id===id); if(!p) return go('#/projects', true);
+    const tab=PROJECT_TABS.find(t=>t.id===tabId)||PROJECT_TABS[0];
+    if(!Array.isArray(p[tab.id])) p[tab.id]=[];
+    const g=progress(p);
+    app.innerHTML = header(esc(p.name), '#/projects', g.n?g.pct+'%':'') + `
+      <div class="tabs" role="tablist">${PROJECT_TABS.map(t=>{ const c=live(p[t.id]).length; return `<button role="tab" data-tab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`; }).join('')}</div>
+      <div class="scroll">
+        ${checklistRows(p[tab.id]) || '<div class="empty">Nothing here yet.</div>'}
+        <div class="row"><button class="main small ${armed===p.id?'danger':''}" id="delp" style="justify-content:center">${armed===p.id?'Press again to delete project':'🗑 Delete project'}</button></div>
+      </div>` + addBox(tab.ph);
+    wireBack('#/projects');
+    app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ go(`#/p/${p.id}/${b.dataset.tab}`, true); focusSel(`[data-tab="${b.dataset.tab}"]`); });
+    wireChecklist(()=>p[tab.id]);
+    document.getElementById('delp').onclick=()=>{
+      if(armed===p.id){ remove(p); armed=null; save(); go('#/projects', true); }
+      else { armed=p.id; render(); focusSel('#delp'); }
+    };
+    wireAdd(t=>{ p[tab.id].push(newItem(t)); save(); render(); focusSel('#newi'); });
+    if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
+  }
+
+  function fmtDate(ts){ try { return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric'}); } catch(e){ return ''; } }
+  const noteCat = n => n.cat || 'personal'; // older notes land in Personal
+
+  function renderNotes(catId){
+    const tab = NOTE_TABS.find(t=>t.id===catId) || NOTE_TABS[0];
+    const all = live(data.notes);
+    const notes=all.filter(n=>noteCat(n)===tab.id).sort((a,b)=>b.created-a.created);
+    const rows=notes.map(n=>`<div class="row"><button class="main" data-note="${n.id}">
+      <span class="t">${esc(n.text.split('\n')[0])}</span><span class="sub">${fmtDate(n.created)}</span></button></div>`).join('');
+    app.innerHTML = header('📝 Notes', '#/') +
+      `<div class="tabs" role="tablist">${NOTE_TABS.map(t=>{
+        const c=all.filter(n=>noteCat(n)===t.id).length;
+        return `<button role="tab" data-ntab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`;
+      }).join('')}</div>` +
+      `<div class="scroll">${rows || '<div class="empty">No notes here yet.<br>Brilliant thoughts go below.</div>'}</div>` + addBox(tab.ph);
+    wireBack('#/');
+    app.querySelectorAll('[data-ntab]').forEach(b=>b.onclick=()=>{ go(`#/notes/${b.dataset.ntab}`, true); focusSel(`[data-ntab="${b.dataset.ntab}"]`); });
+    app.querySelectorAll('[data-note]').forEach(b=>b.onclick=()=>go(`#/note/${b.dataset.note}`));
+    wireAdd(t=>{ data.notes.push({id:uid(),text:t,cat:tab.id,created:now(),u:now()}); save(); render(); focusSel('#newi'); });
+    if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
+  }
+
+  // ----- Contacts: Work / Personal, press to call -----
+  const CONTACT_TABS = [
+    {id:'work', label:'💼 Work'},
+    {id:'personal', label:'🏡 Personal'}
+  ];
+  // "Mike Johnson 614 555 1234" -> name + number (works with dictation)
+  function parseContact(text){
+    const m = text.match(/^(.*?)[\s,:\-]*(\+?\(?\d[\d\s().\-]{5,}\d)\s*$/);
+    if (!m || !m[1].trim()) return null;
+    const name = m[1].trim().replace(/\b\w/g, c=>c.toUpperCase());
+    return {name, phone: m[2].trim()};
+  }
+  const dialable = ph => ph.replace(/[^\d+]/g,'');
+  function prettyPhone(ph){
+    const d = dialable(ph);
+    const m = d.match(/^(?:\+?1)?(\d{3})(\d{3})(\d{4})$/);
+    return m ? `(${m[1]}) ${m[2]}-${m[3]}` : ph;
+  }
+  let toastTimer=null;
+  function toast(html){
+    const t=document.getElementById('toast'); t.innerHTML=html; t.style.display='block';
+    clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.display='none', 6000);
+  }
+
+  function renderContacts(catId){
+    const tab = CONTACT_TABS.find(t=>t.id===catId) || CONTACT_TABS[0];
+    const all = live(data.contacts);
+    const list = all.filter(c=>(c.cat||'personal')===tab.id).sort((a,b)=>a.name.localeCompare(b.name));
+    const rows = list.map(c=>`<div class="row">
+      <a class="main block" href="tel:${esc(dialable(c.phone))}" target="_top" data-call="${c.id}">
+        <span class="t">${esc(c.name)}</span><span class="phone small">📞 ${esc(prettyPhone(c.phone))}</span></a>
+      <button class="x ${armed===c.id?'danger':''}" data-del="${c.id}" aria-label="Delete">${armed===c.id?'Sure?':'✕'}</button>
+    </div>`).join('');
+    app.innerHTML = header('📞 Contacts', '#/') +
+      `<div class="tabs" role="tablist">${CONTACT_TABS.map(t=>{
+        const n=all.filter(c=>(c.cat||'personal')===t.id).length;
+        return `<button role="tab" data-ctab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}<span class="cnt${n?'':' zero'}">${n}</span></button>`;
+      }).join('')}</div>` +
+      `<div class="scroll">${rows || '<div class="empty">No contacts here yet.<br>Say a name and number below,<br>like "Mike 614 555 1234".</div>'}</div>` +
+      addBox('Name and number');
+    wireBack('#/');
+    app.querySelectorAll('[data-ctab]').forEach(b=>b.onclick=()=>{ go(`#/contacts/${b.dataset.ctab}`, true); focusSel(`[data-ctab="${b.dataset.ctab}"]`); });
+    app.querySelectorAll('[data-call]').forEach(a=>a.addEventListener('click', ()=>{
+      const c=all.find(x=>x.id===a.dataset.call);
+      toast(`Calling ${esc(c.name)}…<br><span class="sub">Nothing happening on the glasses? Say "Hey Meta, call ${esc(c.name)}."</span>`);
+    }));
+    app.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+      const id=b.dataset.del;
+      if(armed===id){ remove(data.contacts.find(c=>c.id===id)); armed=null; save(); render(); focusFirst(); }
+      else { armed=id; render(); focusSel(`[data-del="${id}"]`); }
+    });
+    wireAdd(t=>{
+      const c = parseContact(t);
+      if (!c){ toast('Need a name <i>and</i> a number, like "Mike 614 555 1234".'); focusSel('#newi'); return; }
+      data.contacts.push({id:uid(), name:c.name, phone:c.phone, cat:tab.id, c:now(), u:now()});
+      save(); render(); focusSel('#newi');
+    });
+    if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
+  }
+
+  function renderNote(id){
+    const n=live(data.notes).find(x=>x.id===id); if(!n) return go('#/notes', true);
+    const cur=NOTE_TABS.find(t=>t.id===noteCat(n)) || NOTE_TABS[0];
+    const others=NOTE_TABS.filter(t=>t.id!==cur.id);
+    const listHash='#/notes/'+cur.id;
+    app.innerHTML = header(cur.label+' note', listHash, fmtDate(n.created)) + `
+      <div class="scroll">
+        <div class="note-body" tabindex="0">${esc(n.text)}</div>
+        ${others.map(t=>`<div class="row"><button class="main small" data-move="${t.id}" style="justify-content:center">Move to ${t.label}</button></div>`).join('')}
+        <div class="row"><button class="main small ${armed===n.id?'danger':''}" id="deln" style="justify-content:center">${armed===n.id?'Press again to delete':'🗑 Delete note'}</button></div>
+      </div>` + addBox('Add to this note');
+    wireBack(listHash);
+    app.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>{ n.cat=b.dataset.move; touch(n); save(); render(); focusSel('.note-body'); });
+    document.getElementById('deln').onclick=()=>{
+      if(armed===n.id){ remove(n); armed=null; save(); goBack(listHash); }
+      else { armed=n.id; render(); focusSel('#deln'); }
+    };
+    wireAdd(t=>{ n.text += '\n' + t; touch(n); save(); render(); focusSel('#newi'); });
+    if(!app.contains(document.activeElement)) focusFirst();
+  }
+
+  function render(){
+    const r=route();
+    const sec=SECTIONS.find(s=>s.id===r.a);
+    if (r.a==='p' && r.b) renderProject(r.b, r.c);
+    else if (r.a==='projects') renderProjects(r.b);
+    else if (r.a==='notes') renderNotes(r.b);
+    else if (r.a==='note' && r.b) renderNote(r.b);
+    else if (r.a==='contacts') renderContacts(r.b);
+    else if (sec && sec.kind==='priority') renderPriority(sec, r.b);
+    else if (sec && sec.kind==='list') renderList(sec);
+    else renderHome();
+  }
+
+  app.addEventListener('focusin', e=>{ if(e.target.scrollIntoView) e.target.scrollIntoView({block:'nearest'}); });
+  window.addEventListener('popstate', ()=>{
+    armed=null;
+    if (stack.length > 1) stack.pop();
+    else { try { stack=[location.hash||'#/']; } catch(e){ stack=['#/']; } }
+    render();
+  });
+  // Check for changes from the other device on open, when the app comes back into view, and every 20 seconds.
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') sync(); });
+  setInterval(()=>{ if(document.visibilityState!=='hidden') sync(); }, 20000);
+
+  try { render(); } catch(e){ app.innerHTML = '<div class="empty">Something went sideways. Reload to try again.</div>'; }
+  sync();
+})();
+</script>
+</body>
+</html>
