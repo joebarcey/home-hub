@@ -89,6 +89,13 @@
   textarea{min-height:150px;resize:vertical;line-height:1.5}
   .hint{font-size:.8rem;color:var(--muted);margin:6px 2px 0}
   .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+  .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 6px;margin-bottom:8px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .chips::-webkit-scrollbar{display:none}
+  .chips.wrap{flex-wrap:wrap;overflow:visible;margin-bottom:0}
+  .chip{flex:0 0 auto;border:1.5px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:8px 13px;font-size:.88rem;font-weight:500;cursor:pointer;white-space:nowrap}
+  .chip[aria-selected="true"],.chip[aria-checked="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .chip:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  .chipn{opacity:.75;font-variant-numeric:tabular-nums}
   .backlink{align-self:flex-start;border:0;background:none;color:var(--accent);font-weight:600;padding:4px 0;cursor:pointer;margin-bottom:4px}
 
   nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);
@@ -170,29 +177,172 @@
       .filter(Boolean)
       .map(t=>t.charAt(0).toUpperCase()+t.slice(1));
   }
+  // ---------- amounts: "1 3/4 cups milk" -> {qty:1.75, unit:'cup', name:'milk'} ----------
+  const UNICODE_FRAC = {'½':.5,'⅓':1/3,'⅔':2/3,'¼':.25,'¾':.75,'⅛':.125,'⅜':.375,'⅝':.625,'⅞':.875};
+  const WORD_NUM = {a:1, an:1, one:1, two:2, three:3, four:4, five:5, six:6, half:.5, dozen:12};
+  // unit -> [canonical, group, size in the group's base unit]
+  const UNITS = {};
+  function defUnit(canon, group, size, words){ words.forEach(w=>UNITS[w]=[canon, group, size]); }
+  defUnit('tsp','vol',1,['tsp','tsps','teaspoon','teaspoons']);
+  defUnit('tbsp','vol',3,['tbsp','tbsps','tbs','tbl','tablespoon','tablespoons']);
+  defUnit('cup','vol',48,['cup','cups','c']);
+  defUnit('pint','vol',96,['pint','pints','pt']);
+  defUnit('quart','vol',192,['quart','quarts','qt']);
+  defUnit('gallon','vol',768,['gallon','gallons','gal']);
+  defUnit('oz','wt',1,['oz','ounce','ounces']);
+  defUnit('lb','wt',16,['lb','lbs','pound','pounds']);
+  defUnit('g','mwt',1,['g','gram','grams']);
+  defUnit('kg','mwt',1000,['kg','kilogram','kilograms']);
+  defUnit('ml','mvol',1,['ml','milliliter','milliliters']);
+  defUnit('l','mvol',1000,['l','liter','liters','litre','litres']);
+  ['can','jar','package','bag','box','bunch','clove','stick','slice','piece','pinch','dash','head','sprig','bottle','container','loaf','packet','envelope','handful']
+    .forEach(u=>defUnit(u, u, 1, [u, u+'s', u+'es']));
+  defUnit('loaf','loaf',1,['loaves']);
+  defUnit('pack','pack',1,['pack','packs','package','packages','pkg','pkgs']);   // pack and package add together
+
+  function parseNumber(s){
+    s = s.trim();
+    let m;
+    if ((m = s.match(/^(\d+)\s+(\d+)\/(\d+)$/))) return +m[1] + m[2]/m[3];
+    if ((m = s.match(/^(\d+)\/(\d+)$/))) return m[1]/m[2];
+    if ((m = s.match(/^(\d*)\s*([½⅓⅔¼¾⅛⅜⅝⅞])$/))) return (m[1]?+m[1]:0) + UNICODE_FRAC[m[2]];
+    if (/^\d*\.?\d+$/.test(s)) return parseFloat(s);
+    return null;
+  }
+  function parseAmount(line){
+    let s = String(line||'').trim();
+    let qty = null, unit = null;
+    const m = s.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d*\s*[½⅓⅔¼¾⅛⅜⅝⅞]|\d*\.?\d+)(?=\s|[a-zA-Z]|$)\s*/);
+    if (m){ qty = parseNumber(m[1]); s = s.slice(m[0].length); }
+    else {
+      const w = s.match(/^(a|an|one|two|three|four|five|six|half)\s+/i);
+      if (w){ qty = WORD_NUM[w[1].toLowerCase()]; s = s.slice(w[0].length); }
+    }
+    if (qty != null){
+      // "half a cup", "1 dozen eggs"
+      const h = s.match(/^(a|an)\s+/i); if (h && qty===.5) s = s.slice(h[0].length);
+      const d = s.match(/^dozen\s+/i); if (d){ qty *= 12; s = s.slice(d[0].length); }
+      const u = s.match(/^([A-Za-z]+)\.?(?=\s|$)\s*/);
+      if (u){
+        const raw = u[1];
+        const hit = (raw==='T') ? UNITS.tbsp : (raw==='t') ? UNITS.tsp : UNITS[raw.toLowerCase()];
+        if (hit && s.slice(u[0].length).trim()){ unit = hit; s = s.slice(u[0].length); }
+      }
+      s = s.replace(/^of\s+/i, '');
+    }
+    const name = s.trim().replace(/^[,.\-–]\s*/, '') || String(line||'').trim();
+    return {qty, unit, name};
+  }
+  // "Onions", "onion", "1 lb Ground beef" all share the key "onion" / "ground beef"
+  function nameKey(text){
+    return parseAmount(text).name.toLowerCase().replace(/\s+/g,' ').replace(/^(fresh|large|small|medium)\s+/, '').trim()
+      .split(' ').map(w => /ies$/.test(w) ? w.slice(0,-3)+'y' : /oes$/.test(w) ? w.slice(0,-2) : (/[^s]s$/.test(w) ? w.slice(0,-1) : w)).join(' ');
+  }
+
+  function fmtNum(x){
+    const whole = Math.floor(x + 1e-9), rest = x - whole;
+    if (rest < 0.01) return String(whole);
+    if (rest > 0.99) return String(whole + 1);
+    for (const d of [2, 3, 4, 8]){          // halves, thirds, quarters, eighths
+      const n = Math.round(rest * d);
+      if (Math.abs(rest*d - n) < 0.03 && n > 0 && n < d){
+        let a = n, b = d; const g = (x,y)=> y ? g(y, x%y) : x; const k = g(a,b); a/=k; b/=k;
+        return whole ? whole + ' ' + a + '/' + b : a + '/' + b;
+      }
+    }
+    return String(Math.round(x*100)/100);    // not a kitchen fraction
+  }
+  function unitLabel(canon, amount){
+    if (['tsp','tbsp','oz','g','kg','ml','l'].includes(canon)) return canon;
+    if (canon==='lb') return amount > 1 ? 'lbs' : 'lb';
+    if (amount <= 1) return canon;
+    return /(sh|ch|x|s)$/.test(canon) ? canon+'es' : canon==='loaf' ? 'loaves' : canon+'s';
+  }
+  // Mixed US volumes: 1 cup + 2 tbsp stays readable instead of "1 1/8 cups"
+  function fmtVolume(tsp){
+    const parts = [];
+    let cups = Math.floor((tsp + 1e-9) / 12) / 4;     // whole quarter-cups
+    let rest = tsp - cups*48;
+    if (cups){ parts.push(fmtNum(cups) + ' ' + unitLabel('cup', cups)); }
+    const tb = Math.floor((rest + 1e-9) / 1.5) / 2;    // half tablespoons
+    rest -= tb*3;
+    if (tb){ parts.push(fmtNum(tb) + ' tbsp'); }
+    if (rest > 0.01){ parts.push(fmtNum(rest) + ' tsp'); }
+    return parts.join(' + ') || '0 tsp';
+  }
+  function fmtWeight(oz){
+    const lb = Math.floor((oz + 1e-9) / 16), rest = oz - lb*16;
+    if (!lb) return fmtNum(rest) + ' oz';
+    if (rest < 0.01) return fmtNum(lb) + ' ' + unitLabel('lb', lb);
+    return fmtNum(lb) + ' ' + unitLabel('lb', lb) + ' ' + fmtNum(rest) + ' oz';
+  }
+
+  // Add up several ingredient lines that share a name. Returns the display text.
+  function combineAmounts(lines){
+    const parsed = lines.map(parseAmount);
+    const groups = new Map();   // group -> {total, units:Set, firstUnit}
+    let counted = 0, plain = 0, countName = null;
+    parsed.forEach(p=>{
+      if (p.qty == null){ plain++; return; }
+      if (!p.unit){ counted += p.qty; if (!countName || (/s$/i.test(p.name) && !/s$/i.test(countName))) countName = p.name; return; }
+      const [canon, group, size] = p.unit;
+      const g = groups.get(group) || {total:0, units:new Set(), first:canon};
+      g.total += p.qty * size; g.units.add(canon); groups.set(group, g);
+    });
+    const name = (counted > 1 && countName) ? countName : parsed[0].name;
+    const bits = [];
+    groups.forEach((g, group)=>{
+      if (g.units.size === 1){
+        const [canon, , size] = UNITS[g.first] || [g.first, group, 1];
+        const n = g.total / size;
+        bits.push(fmtNum(n) + ' ' + unitLabel(canon, n));
+      } else if (group==='vol') bits.push(fmtVolume(g.total));
+      else if (group==='wt') bits.push(fmtWeight(g.total));
+      else if (group==='mvol') bits.push(g.total >= 1000 ? fmtNum(g.total/1000)+' l' : fmtNum(g.total)+' ml');
+      else if (group==='mwt') bits.push(g.total >= 1000 ? fmtNum(g.total/1000)+' kg' : fmtNum(g.total)+' g');
+      else bits.push(fmtNum(g.total) + ' ' + unitLabel(g.first, g.total));
+    });
+    if (counted) bits.unshift(fmtNum(counted));
+    if (!bits.length) return {text: name, times: lines.length};   // nothing measurable: fall back to ×N
+    return {text: bits.join(' + ') + ' ' + name + (plain ? ' (+ more)' : ''), times: 1};
+  }
+
   function ingredientsOf(r){ return (r.ingredients||[]).map(s=>String(s).trim()).filter(Boolean); }
   function reconcileMeal(r){
     const want = r.on && !r.del ? ingredientsOf(r) : [];
-    const wantSet = new Set(want.map(norm));
+    const wantSet = new Set(want.map(nameKey));
     // Take this meal off items it no longer needs
     live(data.groceries).forEach(g=>{
       const from = g.from || [];
-      if (!from.includes(r.id) || wantSet.has(norm(g.text))) return;
+      if (!from.includes(r.id) || wantSet.has(nameKey(g.text))) return;
       g.from = from.filter(id=>id!==r.id); touch(g);
       if (!g.from.length && !g.manual && !g.done) remove(g);
     });
     // Put it on the items it needs
     want.forEach(text=>{
-      const k = norm(text);
-      let g = live(data.groceries).find(x=>!x.done && norm(x.text)===k);
-      if (!g){ g = {id:uid(), text, done:false, from:[], c:now(), u:now()}; data.groceries.push(g); }
+      const k = nameKey(text);
+      let g = live(data.groceries).find(x=>!x.done && nameKey(x.text)===k);
+      if (!g){ const n = parseAmount(text).name; g = {id:uid(), text:n.charAt(0).toUpperCase()+n.slice(1), done:false, from:[], c:now(), u:now()}; data.groceries.push(g); }
       if (!(g.from||[]).includes(r.id)){ g.from = (g.from||[]).concat(r.id); touch(g); }
     });
   }
   // Adding a meal or recipe whose name already exists opens that one instead of making a duplicate.
-  function findOrMakeRecipe(name, turnOn){
+  // Recipe categories, in the order they show on the Recipes page.
+  const CATS = [
+    {id:'breakfast', label:'Breakfast',        ic:'🍳', one:'breakfast'},
+    {id:'dinner',    label:'Dinners',          ic:'🍲', one:'dinner'},
+    {id:'soup',      label:'Soups',            ic:'🥣', one:'soup'},
+    {id:'dressing',  label:'Dressings & Dips', ic:'🥗', one:'dressing or dip'},
+    {id:'dessert',   label:'Desserts',         ic:'🍰', one:'dessert'}
+  ];
+  const catOf = r => CATS.some(c=>c.id===r.cat) ? r.cat : 'other';
+  let recipeFilter = 'all';
+  try { const v = localStorage.getItem(LS + '-rfilter'); if (v==='all' || v==='other' || CATS.some(c=>c.id===v)) recipeFilter = v; } catch(e){}
+  function setFilter(v){ recipeFilter = v; try { localStorage.setItem(LS + '-rfilter', v); } catch(e){} }
+
+  function findOrMakeRecipe(name, turnOn, cat){
     let r = live(data.recipes).find(x=>norm(x.name)===norm(name));
-    if (!r){ r = {id:uid(), name, ingredients:[], steps:'', on:false, c:now(), u:now()}; data.recipes.push(r); }
+    if (!r){ r = {id:uid(), name, ingredients:[], steps:'', on:false, c:now(), u:now()}; if (cat && cat!=='all' && cat!=='other') r.cat = cat; data.recipes.push(r); }
     if (turnOn && !r.on){ r.on = true; touch(r); reconcileMeal(r); }
     save(); return r;
   }
@@ -280,12 +430,11 @@
   function moveItem(key, id, how){
     const open = live(data[key]).filter(x=>!x.done).sort((a,b)=>pos(a)-pos(b));
     const i = open.findIndex(x=>x.id===id); if (i<0) return;
-    const it = open[i];
-    if (how==='up' && i>0){ const n=open[i-1], a=pos(it), b=pos(n); it.o = a===b ? b-1 : b; n.o = a===b ? a : a; touch(it); touch(n); }
-    else if (how==='down' && i<open.length-1){ const n=open[i+1], a=pos(it), b=pos(n); it.o = a===b ? b+1 : b; n.o = a; touch(it); touch(n); }
-    else if (how==='top' && i>0){ it.o = pos(open[0]) - 1; touch(it); }
-    else if (how==='bottom' && i<open.length-1){ it.o = pos(open[open.length-1]) + 1; touch(it); }
-    else return;
+    let j = how==='up' ? i-1 : how==='down' ? i+1 : how==='top' ? 0 : open.length-1;
+    if (j<0 || j>=open.length || j===i) return;
+    const [it] = open.splice(i,1); open.splice(j,0,it);
+    // Number the list 1, 2, 3... so items added at the same moment can't tie
+    open.forEach((x,n)=>{ if (x.o !== n){ x.o = n; touch(x); } });
     save();
   }
 
@@ -295,19 +444,24 @@
     const openCount = items.filter(i=>!i.done).length;
     const doneCount = items.filter(i=>i.done).length;
     const rows = items.map(it=>{
-      let tags = '';
+      let tags = '', label = it.text;
       if (key==='groceries'){
-        const meals = (it.from||[]).map(recipeName).filter(Boolean);
-        const times = meals.length + (it.manual ? 1 : 0);   // how many meals (plus a hand-typed add) asked for it
-        tags = (times>1 ? `<span class="times" aria-label="needed ${times} times">×${times}</span>` : '') +
-          meals.map(n=>`<span class="tag">${esc(n)}</span>`).join('');
+        const meals = (it.from||[]).map(id=>live(data.recipes).find(r=>r.id===id)).filter(Boolean);
+        const k = nameKey(it.text), lines = [];
+        meals.forEach(r=> ingredientsOf(r).forEach(t=>{ if (nameKey(t)===k) lines.push(t); }));
+        if (it.manual) lines.push(it.manualText || it.text);
+        if (!lines.length) lines.push(it.text);
+        const sum = combineAmounts(lines);   // "1 cup" + "3/4 cup" -> "1 3/4 cups"
+        label = sum.text.charAt(0).toUpperCase() + sum.text.slice(1);
+        tags = (sum.times>1 ? `<span class="times" aria-label="needed ${sum.times} times">×${sum.times}</span>` : '') +
+          meals.map(r=>`<span class="tag">${esc(r.name)}</span>`).join('');
       }
       if (movable){
         const idx = items.indexOf(it), isPicked = picked===it.id && !it.done;
         return `<div class="row ${it.done?'done':''} ${isPicked?'picked':''}">
           <button class="checkbtn" data-toggle="${it.id}" aria-pressed="${!!it.done}" aria-label="${it.done?'Uncheck':'Check off'} ${esc(it.text)}"><span class="check" aria-hidden="true">✓</span></button>
-          <button class="item pickable" data-pick="${it.id}" ${it.done?'disabled':''} aria-expanded="${isPicked}" aria-label="${esc(it.text)}, tap to move"><span class="text">${esc(it.text)}${tags}</span></button>
-          <button class="x ${armed===it.id?'armed':''}" data-del="${it.id}" aria-label="Delete ${esc(it.text)}">${armed===it.id?'Delete?':'✕'}</button>
+          <button class="item pickable" data-pick="${it.id}" ${it.done?'disabled':''} aria-expanded="${isPicked}" aria-label="${esc(label)}, tap to move"><span class="text">${esc(label)}${tags}</span></button>
+          <button class="x ${armed===it.id?'armed':''}" data-del="${it.id}" aria-label="Delete ${esc(label)}">${armed===it.id?'Delete?':'✕'}</button>
         </div>` + (isPicked ? `<div class="mover" role="group" aria-label="Move ${esc(it.text)}">
             <button class="mv" data-move="top" ${idx===0?'disabled':''}>⤒ Top</button>
             <button class="mv" data-move="up" ${idx===0?'disabled':''}>▲ Up</button>
@@ -327,12 +481,12 @@
     wireAdd(raw=>{
       const many = key==='todo' ? [raw] : splitList(raw);   // to-dos can contain commas; lists split on them
       let dupes = 0;
-      many.forEach(t=>{
+      many.forEach((t,n)=>{
         if (key==='groceries'){
-          const ex = live(data.groceries).find(x=>!x.done && norm(x.text)===norm(t));
-          if (ex){ if(!ex.manual){ ex.manual=true; touch(ex); } dupes++; return; }
-          data.groceries.push({id:uid(), text:t, done:false, manual:true, from:[], c:now(), u:now()});
-        } else data[key].push({id:uid(), text:t, done:false, c:now(), u:now()});
+          const ex = live(data.groceries).find(x=>!x.done && nameKey(x.text)===nameKey(t));
+          if (ex){ ex.manual=true; ex.manualText=t; touch(ex); dupes++; return; }
+          data.groceries.push({id:uid(), text:t, done:false, manual:true, manualText:t, from:[], c:now()+n, u:now()});
+        } else data[key].push({id:uid(), text:t, done:false, c:now()+n, u:now()});
       });
       save(); render();
       if (dupes && many.length===1) toast('Already on the list');
@@ -396,11 +550,27 @@
   // ---------- Recipes ----------
   function renderRecipes(){
     if (editing) return renderRecipe(editing);
-    const rs = live(data.recipes).sort((a,b)=>a.name.localeCompare(b.name));
-    const rows = rs.map(r=>`<button class="item" data-open="${r.id}"><span class="text"><b>${esc(r.name)}</b>${r.on?'<span class="tag">on the menu</span>':''}<br><span class="sub">${esc(ingredientsOf(r).slice(0,4).join(', ') || 'No ingredients yet')}${ingredientsOf(r).length>4?'…':''}</span></span><span class="sub" aria-hidden="true">›</span></button>`).join('');
-    app.innerHTML = header('Recipes') + addRow('New recipe name') +
-      (rows ? `<div class="list">${rows}</div>` : `<div class="empty">No recipes yet.<br>Add one above to save its ingredients and steps.</div>`);
-    wireAdd(t=>{ const r=findOrMakeRecipe(t, false); editing=r.id; render(); window.scrollTo(0,0); });
+    const all = live(data.recipes).sort((a,b)=>a.name.localeCompare(b.name));
+    const row = r=>`<button class="item" data-open="${r.id}"><span class="text"><b>${esc(r.name)}</b>${r.on?'<span class="tag">on the menu</span>':''}<br><span class="sub">${esc(ingredientsOf(r).slice(0,4).join(', ') || 'No ingredients yet')}${ingredientsOf(r).length>4?'…':''}</span></span><span class="sub" aria-hidden="true">›</span></button>`;
+    const count = id => all.filter(r=>catOf(r)===id).length;
+    const groups = CATS.concat([{id:'other', label:'No category', ic:'📄'}]);
+    const chips = [{id:'all', label:'All', n:all.length}].concat(CATS.map(c=>({id:c.id, label:c.ic+' '+c.label, n:count(c.id)})))
+      .concat(count('other') ? [{id:'other', label:'No category', n:count('other')}] : []);
+    if (recipeFilter==='other' && !count('other')) setFilter('all');
+    const cur = groups.find(g=>g.id===recipeFilter);
+    let body;
+    if (recipeFilter==='all'){
+      body = groups.map(g=>{ const list = all.filter(r=>catOf(r)===g.id); return list.length ? `<div class="section">${g.ic} ${esc(g.label)} · ${list.length}</div><div class="list">${list.map(row).join('')}</div>` : ''; }).join('');
+      if (!body) body = `<div class="empty">No recipes yet.<br>Add one above to save its ingredients and steps.</div>`;
+    } else {
+      const list = all.filter(r=>catOf(r)===recipeFilter);
+      body = list.length ? `<div class="list">${list.map(row).join('')}</div>` : `<div class="empty">No ${esc(cur.label.toLowerCase())} yet.<br>Add one above and it goes here.</div>`;
+    }
+    app.innerHTML = header('Recipes') +
+      `<div class="chips" role="tablist" aria-label="Recipe categories">${chips.map(c=>`<button class="chip" role="tab" data-filter="${c.id}" aria-selected="${c.id===recipeFilter}">${esc(c.label)}${c.n?` <span class="chipn">${c.n}</span>`:''}</button>`).join('')}</div>` +
+      addRow(recipeFilter==='all' || recipeFilter==='other' ? 'New recipe name' : 'New ' + cur.one + ' recipe') + body;
+    app.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{ setFilter(b.dataset.filter); render(); const n=app.querySelector(`[data-filter="${b.dataset.filter}"]`); if(n){ n.focus(); n.scrollIntoView({block:'nearest', inline:'nearest'}); } });
+    wireAdd(t=>{ const r=findOrMakeRecipe(t, false, recipeFilter); editing=r.id; render(); window.scrollTo(0,0); });
     app.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{ editing=b.dataset.open; render(); window.scrollTo(0,0); });
   }
 
@@ -415,6 +585,8 @@
         <button class="switch" role="switch" aria-checked="${!!r.on}" aria-label="On the menu" id="onmenu"></button></div></div>
       <label for="rname">Name</label>
       <input class="field" id="rname" type="text" value="${esc(r.name)}" autocomplete="off">
+      <label id="catlbl">Category</label>
+      <div class="chips wrap" role="radiogroup" aria-labelledby="catlbl">${CATS.map(c=>`<button class="chip" role="radio" data-cat="${c.id}" aria-checked="${catOf(r)===c.id}">${c.ic} ${esc(c.label)}</button>`).join('')}</div>
       <label for="ingnew">Ingredients${ings.length?` · ${ings.length}`:''}</label>
       <form class="addrow" id="ingform" style="margin-bottom:10px"><input id="ingnew" type="text" placeholder="Add an ingredient" autocomplete="off" enterkeyhint="done"><button class="btn" type="submit">Add</button></form>
       ${ingRows ? `<div class="list">${ingRows}</div>` : ''}
@@ -458,6 +630,13 @@
       armed=null; render();
       const again=document.getElementById('ingnew'); if(again) again.focus();
       if (add.length>1) toast(`Added ${add.length} ingredients`);
+    });
+    app.querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>{
+      commit();
+      r.cat = r.cat===b.dataset.cat ? undefined : b.dataset.cat;   // tap again to clear
+      if (!r.cat) delete r.cat;
+      touch(r); save(); render();
+      const n=app.querySelector(`[data-cat="${b.dataset.cat}"]`); if(n) n.focus();
     });
     app.querySelectorAll('[data-ingdel]').forEach(b=>b.onclick=()=>{
       const i=+b.dataset.ingdel, key='ing'+i;
