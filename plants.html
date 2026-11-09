@@ -67,6 +67,11 @@
   .pill.gold{background:var(--gold-soft);color:var(--gold)}
 
   .search{margin-bottom:10px}
+  .sugg{display:flex;gap:6px;flex-wrap:wrap}
+  .sugg:empty{display:none}
+  .sugg button{border:1.5px solid var(--line);background:var(--accent-soft);color:var(--ink);border-radius:99px;padding:7px 12px;font-size:.9rem;cursor:pointer;text-align:left}
+  .sugg button b{font-weight:600}
+  .sugg button span{color:var(--muted);font-size:.8rem;margin-left:4px}
 
   /* lists */
   .month{display:flex;justify-content:space-between;align-items:baseline;margin:18px 4px 8px;font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
@@ -275,6 +280,33 @@
     document.getElementById('supplynames').innerHTML = [...sn.values()].sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${esc(n)}">`).join('');
   }
 
+  // Tap-to-fill suggestions under the name box, from past entries.
+  // Most-used names first; tapping fills the name and the last price used.
+  function suggest(input, priceInput, items, priceOf, sugEl){
+    const stats = new Map();
+    items.forEach(x=>{ const k=key(x.name); if(!k) return;
+      const e = stats.get(k) || {name:x.name, n:0, last:null, lastDate:''};
+      e.n++; const d = (x.date||'') + String(x.c||0).padStart(15,'0');
+      const pr = priceOf(x); if (pr!=null && d >= e.lastDate){ e.last = pr; e.lastDate = d; e.name = x.name; }
+      stats.set(k, e); });
+    const all = [...stats.values()];
+    function show(){
+      const q = key(input.value);
+      if (!q){ sugEl.innerHTML=''; return; }
+      const hits = all.filter(e=>key(e.name).includes(q) && key(e.name)!==q)
+        .sort((a,b)=> (key(b.name).startsWith(q)-key(a.name).startsWith(q)) || b.n-a.n || a.name.localeCompare(b.name))
+        .slice(0,6);
+      sugEl.innerHTML = hits.map((e,i)=>`<button type="button" data-i="${i}"><b>${esc(e.name)}</b><span>${e.last!=null?usd(e.last)+' · ':''}${e.n}×</span></button>`).join('');
+      sugEl.querySelectorAll('button').forEach(b=>{
+        b.addEventListener('pointerdown', ev=>ev.preventDefault());   // keep the keyboard up
+        b.onclick = ()=>{ const e=hits[+b.dataset.i]; input.value=e.name; sugEl.innerHTML='';
+          if (priceInput && !priceInput.disabled && e.last!=null){ priceInput.value = String(+e.last.toFixed(2)); }
+          (priceInput && !priceInput.disabled ? priceInput : input).focus(); };
+      });
+    }
+    input.addEventListener('input', show);
+  }
+
   // Group entries by month, newest first
   function byMonth(items, dateKey){
     const groups = new Map();
@@ -293,7 +325,8 @@
     const groups = byMonth(list, 'date');
     app.innerHTML = header('Sold') + `
       <form class="form" id="addform" autocomplete="off">
-        <input class="field" id="f_name" list="plantnames" placeholder="Plant sold" aria-label="Plant sold" enterkeyhint="next">
+        <input class="field" id="f_name" placeholder="Plant sold" aria-label="Plant sold" enterkeyhint="next" autocorrect="off">
+        <div class="sugg" id="sugg" aria-label="Past sales"></div>
         <div class="two">
           <div class="money"><span>$</span><input class="field" id="f_amt" inputmode="decimal" placeholder="Price" aria-label="Price" ${freeMode?'disabled':''}></div>
           <input class="field" id="f_date" type="date" value="${today()}" aria-label="Date sold">
@@ -310,6 +343,7 @@
         items=>{ const p=items.filter(s=>!s.free); return `${p.length} · ${usd(p.reduce((t,s)=>t+(s.price||0),0))}`; },
         query ? 'No sales match that search.' : 'No sales yet. Add the first one above.')}`;
     const fName=document.getElementById('f_name'), fAmt=document.getElementById('f_amt'), fDate=document.getElementById('f_date');
+    suggest(fName, fAmt, live(data.sales), x=>x.free?null:x.price, document.getElementById('sugg'));
     document.getElementById('freechip').onclick = ()=>{ freeMode=!freeMode; const n=fName.value, d=fDate.value; render(); document.getElementById('f_name').value=n; document.getElementById('f_date').value=d; };
     document.getElementById('addform').addEventListener('submit', e=>{
       e.preventDefault();
@@ -342,7 +376,8 @@
     const groups = byMonth(list, 'date');
     app.innerHTML = header('Bought') + `
       <form class="form" id="addform" autocomplete="off">
-        <input class="field" id="f_name" list="plantnames" placeholder="Plant or item bought" aria-label="Plant or item bought" enterkeyhint="next">
+        <input class="field" id="f_name" placeholder="Plant or item bought" aria-label="Plant or item bought" enterkeyhint="next" autocorrect="off">
+        <div class="sugg" id="sugg" aria-label="Past purchases"></div>
         <div class="two">
           <div class="money"><span>$</span><input class="field" id="f_amt" inputmode="decimal" placeholder="Cost" aria-label="Cost"></div>
           <input class="field" id="f_date" type="date" value="${today()}" aria-label="Date bought">
@@ -355,6 +390,7 @@
         items=>`${items.length} · ${usd(items.reduce((t,b)=>t+(b.cost||0),0))}`,
         query ? 'No purchases match that search.' : 'No purchases yet. Add one above.')}`;
     const fName=document.getElementById('f_name'), fAmt=document.getElementById('f_amt'), fDate=document.getElementById('f_date');
+    suggest(fName, fAmt, live(data.bought), x=>x.cost, document.getElementById('sugg'));
     document.getElementById('addform').addEventListener('submit', e=>{
       e.preventDefault();
       const name=fName.value.trim(); if(!name){ fName.focus(); return; }
@@ -387,7 +423,8 @@
     const kinds = new Map(); stock.forEach(p=>{ const k=key(p.name); const e=kinds.get(k)||{name:p.name,n:0,cost:0}; e.n++; e.cost+=p.cost||0; kinds.set(k,e); });
     app.innerHTML = header('Pots & Supplies') + `
       <form class="form" id="addform" autocomplete="off">
-        <input class="field" id="f_name" list="supplynames" placeholder="Pot or supply, like Clay pot" aria-label="Pot or supply" enterkeyhint="next">
+        <input class="field" id="f_name" placeholder="Pot or supply, like Clay pot" aria-label="Pot or supply" enterkeyhint="next" autocorrect="off">
+        <div class="sugg" id="sugg" aria-label="Past supplies"></div>
         <div class="two">
           <div class="money"><span>$</span><input class="field" id="f_amt" inputmode="decimal" placeholder="Cost each" aria-label="Cost each"></div>
           <input class="field" id="f_qty" inputmode="numeric" placeholder="How many (1)" aria-label="How many">
@@ -411,6 +448,7 @@
           : `<div class="empty">${query?'Nothing matches that search.':supplyView==='sold'?'Nothing sold yet. Open an item and tap Mark sold.':'Nothing on hand. Add pots and supplies above.'}</div>`)}`;
     app.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{ supplyView=b.dataset.view; editing=null; query=''; shown=6; render(); });
     const fName=document.getElementById('f_name'), fAmt=document.getElementById('f_amt'), fQty=document.getElementById('f_qty'), fDate=document.getElementById('f_date');
+    suggest(fName, fAmt, live(data.supplies), x=>x.cost, document.getElementById('sugg'));
     document.getElementById('addform').addEventListener('submit', e=>{
       e.preventDefault();
       const name=fName.value.trim(); if(!name){ fName.focus(); return; }
