@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Plants">
+<meta name="theme-color" content="#f3f5ef" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121813" media="(prefers-color-scheme: dark)">
+<title>Plant Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+  /* Layout: one column, header + content + fixed bottom tabs. Leaf green, with a warm gold for money. */
+  :root{
+    --bg:#f3f5ef; --card:#ffffff; --ink:#1b231d; --muted:#65706a; --line:#dde3da;
+    --accent:#2c6e49; --accent-ink:#ffffff; --accent-soft:#e1efe5; --gold:#9a6a00; --gold-soft:#fbf0d6;
+    --warn:#b4432c; --good:#2c6e49;
+    --veil: rgba(243,245,239,.62); --glass: rgba(255,255,255,.8);
+    --display:"Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+    --body:"Figtree", -apple-system, "Segoe UI", system-ui, sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#121813; --card:#1b231d; --ink:#e8eee9; --muted:#97a39b; --line:#2b362f;
+      --accent:#7ccb9b; --accent-ink:#0e1a12; --accent-soft:#213a2a; --gold:#e8c46a; --gold-soft:#3a3018;
+      --warn:#f08a72; --good:#7ccb9b;
+      --veil: rgba(18,24,19,.62); --glass: rgba(27,35,29,.82);
+      color-scheme: dark;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{background:var(--bg);color:var(--ink);font:16px/1.4 var(--body);-webkit-tap-highlight-color:transparent}
+  button,input,select{font:inherit;color:inherit}
+  #app{min-height:100%;padding:calc(env(safe-area-inset-top,0px) + 12px) max(16px, env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 92px) max(16px, env(safe-area-inset-left,0px))}
+  header{display:flex;align-items:baseline;gap:10px;margin:6px 0 14px}
+  h1{font:700 1.75rem/1.1 var(--display);margin:0;flex:1;letter-spacing:-.01em}
+  .sync{border:0;background:none;padding:0;font-size:.8rem;color:var(--muted);white-space:nowrap;cursor:default}
+  .sync.ok{color:var(--accent)} .sync.off{color:var(--warn)}
+  .sync.none{color:var(--accent);text-decoration:underline;cursor:pointer}
+  .sub{color:var(--muted);font-size:.85rem}
+  .num{font-variant-numeric:tabular-nums}
+
+  /* add form */
+  .form{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;display:grid;gap:8px;margin-bottom:14px}
+  .form .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .field{width:100%;min-width:0;border:1.5px solid var(--line);background:var(--bg);border-radius:12px;padding:11px 12px;font-size:1rem}
+  .field:focus{outline:none;border-color:var(--accent)}
+  .money{position:relative}
+  .money span{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted)}
+  .money .field{padding-left:24px}
+  .btn{border:0;border-radius:12px;padding:11px 16px;background:var(--accent);color:var(--accent-ink);font-weight:600;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--accent);border:1.5px solid var(--line)}
+  .btn.danger{background:transparent;color:var(--warn);border:1.5px solid var(--line)}
+  .btn:focus-visible,.row:focus-visible,.tab:focus-visible,.chip:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  .chip{border:1.5px solid var(--line);background:var(--card);border-radius:99px;padding:9px 14px;font-weight:600;cursor:pointer;white-space:nowrap}
+  .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .actions{display:flex;gap:8px;flex-wrap:wrap}
+
+  /* summary strip */
+  .strip{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto;scrollbar-width:none}
+  .strip::-webkit-scrollbar{display:none}
+  .pill{flex:0 0 auto;background:var(--accent-soft);color:var(--accent);border-radius:12px;padding:8px 12px;font-size:.85rem;font-weight:600}
+  .pill.gold{background:var(--gold-soft);color:var(--gold)}
+
+  .search{margin-bottom:10px}
+
+  /* lists */
+  .month{display:flex;justify-content:space-between;align-items:baseline;margin:18px 4px 8px;font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+  .list{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+  .row{display:flex;align-items:center;gap:12px;padding:12px 14px;width:100%;border:0;background:none;text-align:left;cursor:pointer}
+  .row + .row, .row + .edit, .edit + .row{border-top:1px solid var(--line)}
+  .row .name{flex:1;min-width:0;overflow-wrap:anywhere}
+  .row .when{color:var(--muted);font-size:.8rem;flex:0 0 auto}
+  .row .amt{flex:0 0 auto;font-weight:600;font-variant-numeric:tabular-nums;min-width:4.2em;text-align:right}
+  .tag{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--gold-soft);color:var(--gold)}
+  .tag.green{background:var(--accent-soft);color:var(--accent)}
+  .itemno{color:var(--muted);font-size:.8rem;font-variant-numeric:tabular-nums;min-width:2.2em}
+  .edit{padding:12px 14px;background:var(--accent-soft);display:grid;gap:8px}
+  .empty{color:var(--muted);text-align:center;padding:30px 16px;line-height:1.5}
+  .more{display:block;margin:12px auto 0}
+
+  /* totals */
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px}
+  .card .k{font-size:.78rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  .card .v{font:700 1.45rem/1.2 var(--display);font-variant-numeric:tabular-nums;margin-top:4px}
+  .card.big{grid-column:1/-1;background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .card.big .k{color:inherit;opacity:.85}
+  .card.big .v{font-size:2rem}
+  .card .s{font-size:.8rem;color:var(--muted);margin-top:2px}
+  .card.big .s{color:inherit;opacity:.85}
+  .neg{color:var(--warn)}
+  .tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:16px}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:.82rem}
+  th,td{padding:10px 4px;text-align:right;white-space:nowrap}
+  th:first-child,td:first-child{padding-left:12px} th:last-child,td:last-child{padding-right:12px}
+  th:first-child,td:first-child{text-align:left}
+  th{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+  tbody tr{border-top:1px solid var(--line)}
+  tfoot tr{border-top:2px solid var(--line);font-weight:700}
+  .yearchips{display:flex;gap:8px;margin:-4px 0 12px;flex-wrap:wrap}
+
+  nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);
+    padding:6px max(6px, env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 6px) max(6px, env(safe-area-inset-left,0px));z-index:5}
+  .tab{flex:1;border:0;background:none;padding:6px 2px;border-radius:10px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.72rem;color:var(--muted);cursor:pointer}
+  .tab .ic{font-size:1.25rem;line-height:1.2}
+  .tab .lbl{text-align:center;line-height:1.15}
+  .tab[aria-current="page"]{color:var(--accent);font-weight:700}
+  #toast{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);background:var(--ink);color:var(--bg);border-radius:12px;padding:12px 14px;font-size:.9rem;display:none;z-index:6}
+
+  .connect{background:var(--card);border:1.5px solid var(--accent);border-radius:16px;padding:14px;margin-bottom:14px}
+
+  /* background pictures, one per page, saved on this phone */
+  #bg{position:fixed;inset:0;z-index:-1;background-size:cover;background-position:center;display:none}
+  #bg::after{content:"";position:absolute;inset:0;background:var(--veil)}
+  body.has-bg{background:transparent}
+  body.has-bg #bg{display:block}
+  body.has-bg .list, body.has-bg .form, body.has-bg .card:not(.big), body.has-bg .tablewrap, body.has-bg .field, body.has-bg .chip:not([aria-pressed="true"]), body.has-bg .connect{background-color:var(--glass);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+  body.has-bg header, body.has-bg .month, body.has-bg .empty{text-shadow:0 0 6px var(--bg),0 0 2px var(--bg)}
+  .bgbtn{flex:0 0 auto;align-self:center;border:1.5px solid var(--line);background:var(--card);border-radius:10px;padding:5px 8px;font-size:1rem;line-height:1;cursor:pointer}
+  .bgmenu{display:flex;gap:8px;margin:-4px 0 12px}
+  .bgmenu .btn{flex:1}
+  @media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+</style>
+</head>
+<body>
+<div id="bg" aria-hidden="true"></div>
+<div id="app"></div>
+<input type="file" id="bgfile" accept="image/*" hidden>
+<div id="toast" role="status"></div>
+<nav id="nav" aria-label="Sections"></nav>
+<datalist id="plantnames"></datalist>
+<datalist id="supplynames"></datalist>
+<script>
+(function(){
+  // ---------- sync link: arrives as ?sync=..., remembered on this phone ----------
+  const SPACE = 'plants';
+  const LS = 'plant-ledger-v1', LS_DIRTY = LS + '-dirty', LS_SYNC = LS + '-sync', LS_TAB = LS + '-tab';
+  const ok = u => /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u);
+  function findSyncUrl(){
+    let u = '';
+    try { const q = new URLSearchParams(location.search).get('sync'); if (q && ok(q)) u = q; } catch(e){}
+    if (!u){ try { const m = location.hash.match(/[#&]sync=([^&]+)/); if (m){ const v = decodeURIComponent(m[1]); if (ok(v)) u = v; } } catch(e){} }
+    if (u){
+      try { localStorage.setItem(LS_SYNC, u); } catch(e){}
+      try { if (/sync=/.test(location.hash) || new URLSearchParams(location.search).get('sync') !== u) history.replaceState(null, '', location.pathname + '?sync=' + u); } catch(e){}
+    }
+    if (!u){ try { const v = localStorage.getItem(LS_SYNC) || ''; if (ok(v)) u = v; } catch(e){} }
+    return u;
+  }
+  const SYNC_URL = findSyncUrl();
+
+  const LISTS = ['sales','bought','supplies'];
+  const TABS = [
+    {id:'sales',    ic:'🪴', label:'Sold'},
+    {id:'bought',   ic:'🛒', label:'Bought'},
+    {id:'supplies', ic:'🏺', label:'Pots & Supplies'},
+    {id:'totals',   ic:'📊', label:'Totals'}
+  ];
+
+  const app = document.getElementById('app'), nav = document.getElementById('nav');
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  const now = () => Date.now();
+  const esc = s => { const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; };
+  const live = a => (a||[]).filter(x=>!x.del);
+  const touch = x => { x.u = now(); };
+  const remove = x => { x.del = true; x.u = now(); };
+  const today = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+  // Table money: drop .00 on whole dollars so five columns fit on a phone
+  const usdT = n => (n<0?'−':'') + '$' + Math.abs(n).toLocaleString('en-US',{minimumFractionDigits: Math.abs(n)%1 ? 2 : 0, maximumFractionDigits:2});
+  const usd = n => (n<0?'−':'') + '$' + Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const monthName = ym => { const [y,m]=ym.split('-'); return MONTHS[+m-1] + ' ' + y; };
+  const shortDate = d => { if(!d) return ''; const [y,m,dd]=d.split('-'); return (+m)+'/'+(+dd); };
+  const parseMoney = v => { const n = parseFloat(String(v||'').replace(/[$,\s]/g,'')); return isFinite(n) ? Math.round(n*100)/100 : null; };
+  const key = s => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+
+  // ---------- storage ----------
+  let mem = null;
+  function load(){
+    let d = null;
+    try { const s = localStorage.getItem(LS); if (s) d = JSON.parse(s); } catch(e){}
+    d = d || mem || {};
+    LISTS.forEach(k=>{ if(!Array.isArray(d[k])) d[k]=[]; });
+    return d;
+  }
+  let data = load();
+  let dirty = true;
+  try { dirty = localStorage.getItem(LS_DIRTY) !== '0'; } catch(e){}
+  function setDirty(v){ dirty=v; try { localStorage.setItem(LS_DIRTY, v?'1':'0'); } catch(e){} }
+  function store(){ mem = data; try { localStorage.setItem(LS, JSON.stringify(data)); } catch(e){} }
+  function save(){ store(); setDirty(true); scheduleSync(); }
+
+  // ---------- sync (merges into the data on screen; last change wins per entry) ----------
+  function replaceObj(t, s){ Object.keys(t).forEach(k=>{ if(!(k in s)) delete t[k]; }); Object.keys(s).forEach(k=>{ t[k]=s[k]; }); }
+  function mergeInto(d, remote){
+    LISTS.forEach(k=>{
+      if(!Array.isArray(d[k])) d[k]=[];
+      const byId = new Map(d[k].map(x=>[x.id,x]));
+      ((remote||{})[k]||[]).forEach(y=>{
+        const x = byId.get(y.id);
+        if (!x){ d[k].push(y); byId.set(y.id,y); }
+        else if ((y.u||0) > (x.u||0)) replaceObj(x, y);
+      });
+    });
+  }
+  // Her spreadsheet history arrives once in a packed form; unpack it into entries.
+  function unpackSeed(p){
+    const y = p.year || 2026, dt = md => md ? `${y}-${md.slice(0,2)}-${md.slice(2,4)}` : '';
+    return {
+      sales: (p.S||[]).map((r,i)=>({id:'s'+i, name:r[1], price: r[2]==='F' ? 0 : +r[2], free: r[2]==='F', date: dt(r[0]), c:i})),
+      bought: (p.B||[]).map((r,i)=>({id:'b'+i, name:r[1], cost:+r[2], date: dt(r[0]), c:i})),
+      supplies: (p.P||[]).map((r,i)=>({id:'p'+i, num:r[0], name:r[1], cost:+r[2], date: dt(r[3]), soldPrice:null, soldDate:null, c:i}))
+    };
+  }
+  const fingerprint = d => JSON.stringify(LISTS.map(k=>(d[k]||[]).map(x=>x.id+':'+(x.u||0)).sort()));
+  let syncing=false, again=false, timer=null, status=SYNC_URL?'':'none', last=0;
+  function scheduleSync(){ if(!SYNC_URL) return; clearTimeout(timer); timer=setTimeout(sync, 700); }
+  function statusText(){
+    return status==='ok' ? 'Synced ' + new Date(last).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})
+      : status==='off' ? 'Offline, saved on phone' : status==='busy' ? 'Syncing…' : status==='none' ? 'This phone only · Connect' : '';
+  }
+  function showStatus(){ const el=document.getElementById('sync'); if(el){ el.className='sync '+status; el.textContent=statusText(); } }
+  function setStatus(s){ status=s; showStatus(); }
+  async function sync(){
+    if (!SYNC_URL) return;
+    if (syncing){ again=true; return; }
+    syncing=true; setStatus('busy');
+    try {
+      const r = await fetch(SYNC_URL + '?action=get&space=' + SPACE + '&t=' + now(), {cache:'no-store'});
+      if (!r.ok) throw new Error('get '+r.status);
+      let remote = await r.json();
+      if (remote && remote.seed) remote = unpackSeed(remote);
+      const before = fingerprint(data);
+      mergeInto(data, remote); store();
+      if (dirty || fingerprint(data) !== fingerprint(remote||{})){
+        setDirty(false);
+        try {
+          const p = await fetch(SYNC_URL + '?space=' + SPACE, {method:'POST', body: JSON.stringify(data)});
+          if (!p.ok) throw new Error('post '+p.status);
+        } catch(e){ setDirty(true); throw e; }
+      }
+      last = now(); setStatus('ok');
+      if (fingerprint(data) !== before) refresh();
+    } catch(e){ setStatus('off'); }
+    syncing=false;
+    if (again){ again=false; sync(); }
+  }
+  function refresh(){
+    const a = document.activeElement;
+    if (a && (a.tagName==='INPUT' || a.tagName==='SELECT')) return;   // don't interrupt typing
+    render();
+  }
+
+  // ---------- view state ----------
+  let tab = 'sales';
+  try { const t = localStorage.getItem(LS_TAB); if (TABS.some(x=>x.id===t)) tab = t; } catch(e){}
+  let editing = null, armed = null, query = '', shown = 6, freeMode = false, connectOpen = false, bgMenu = false;
+  let totalsYear = 'all';
+  function go(t){ tab=t; editing=null; armed=null; query=''; shown=6; bgMenu=false; try { localStorage.setItem(LS_TAB, t); } catch(e){} render(); window.scrollTo(0,0); }
+
+  let toastTimer=null;
+  function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.display='none', 3200); }
+  function header(title){ return `<header><h1>${esc(title)}</h1><button type="button" id="sync" class="sync"></button></header>`; }
+
+  // Name suggestions from what she's typed before
+  function fillSuggestions(){
+    const pn = new Map(); live(data.sales).concat(live(data.bought)).forEach(x=>{ const k=key(x.name); if(k && !pn.has(k)) pn.set(k, x.name); });
+    document.getElementById('plantnames').innerHTML = [...pn.values()].sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${esc(n)}">`).join('');
+    const sn = new Map(); live(data.supplies).forEach(x=>{ const k=key(x.name); if(k && !sn.has(k)) sn.set(k, x.name); });
+    document.getElementById('supplynames').innerHTML = [...sn.values()].sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${esc(n)}">`).join('');
+  }
+
+  // Group entries by month, newest first
+  function byMonth(items, dateKey){
+    const groups = new Map();
+    items.forEach(x=>{ const ym = (x[dateKey]||'').slice(0,7) || 'no date'; if(!groups.has(ym)) groups.set(ym, []); groups.get(ym).push(x); });
+    return [...groups.entries()].sort((a,b)=> b[0].localeCompare(a[0]));
+  }
+  const sortNewest = (a,b,k) => (b[k]||'').localeCompare(a[k]||'') || (b.c||0)-(a.c||0);
+
+  // ---------- Sold ----------
+  function renderSales(){
+    const all = live(data.sales);
+    const ym = today().slice(0,7);
+    const thisMonth = all.filter(s=>(s.date||'').startsWith(ym));
+    const mPaid = thisMonth.filter(s=>!s.free);
+    const list = all.filter(s=>!query || key(s.name).includes(key(query))).sort((a,b)=>sortNewest(a,b,'date'));
+    const groups = byMonth(list, 'date');
+    app.innerHTML = header('Sold') + `
+      <form class="form" id="addform" autocomplete="off">
+        <input class="field" id="f_name" list="plantnames" placeholder="Plant sold" aria-label="Plant sold" enterkeyhint="next">
+        <div class="two">
+          <div class="money"><span>$</span><input class="field" id="f_amt" inputmode="decimal" placeholder="Price" aria-label="Price" ${freeMode?'disabled':''}></div>
+          <input class="field" id="f_date" type="date" value="${today()}" aria-label="Date sold">
+        </div>
+        <div class="actions"><button type="button" class="chip" id="freechip" aria-pressed="${freeMode}">🎁 Free</button><button class="btn" type="submit" style="flex:1">Add sale</button></div>
+      </form>
+      <div class="strip">
+        <span class="pill">This month: ${mPaid.length} sold</span>
+        <span class="pill gold">${usd(mPaid.reduce((t,s)=>t+(s.price||0),0))}</span>
+        ${thisMonth.length-mPaid.length ? `<span class="pill">${thisMonth.length-mPaid.length} given free</span>` : ''}
+      </div>
+      <input class="field search" id="q" type="search" placeholder="Search sales" value="${esc(query)}" aria-label="Search sales">
+      ${groupsHtml(groups, s=>`<button class="row" data-edit="${s.id}"><span class="name">${esc(s.name)}</span><span class="when">${shortDate(s.date)}</span><span class="amt">${s.free?'<span class="tag green">Free</span>':usd(s.price||0)}</span></button>${editing===s.id?editSale(s):''}`,
+        items=>{ const p=items.filter(s=>!s.free); return `${p.length} · ${usd(p.reduce((t,s)=>t+(s.price||0),0))}`; },
+        query ? 'No sales match that search.' : 'No sales yet. Add the first one above.')}`;
+    const fName=document.getElementById('f_name'), fAmt=document.getElementById('f_amt'), fDate=document.getElementById('f_date');
+    document.getElementById('freechip').onclick = ()=>{ freeMode=!freeMode; const n=fName.value, d=fDate.value; render(); document.getElementById('f_name').value=n; document.getElementById('f_date').value=d; };
+    document.getElementById('addform').addEventListener('submit', e=>{
+      e.preventDefault();
+      const name=fName.value.trim(); if(!name){ fName.focus(); return; }
+      const price = freeMode ? 0 : parseMoney(fAmt.value);
+      if (!freeMode && price==null){ toast('Enter a price, or tap Free'); fAmt.focus(); return; }
+      data.sales.push({id:uid(), name, price, free:freeMode, date:fDate.value||today(), c:now(), u:now()});
+      save(); const keepDate=fDate.value; freeMode=false; render();
+      document.getElementById('f_date').value=keepDate; document.getElementById('f_name').focus();
+      toast(`Added ${name}`);
+    });
+    wireList('sales');
+  }
+  function editSale(s){
+    return `<div class="edit">
+      <input class="field" id="e_name" list="plantnames" value="${esc(s.name)}" aria-label="Plant">
+      <div class="two"><div class="money"><span>$</span><input class="field" id="e_amt" inputmode="decimal" value="${s.free?'':(s.price??'')}" placeholder="Free" aria-label="Price"></div>
+      <input class="field" id="e_date" type="date" value="${esc(s.date||'')}" aria-label="Date"></div>
+      <div class="actions"><button class="btn" id="e_save" style="flex:1">Save</button><button class="btn ghost" id="e_cancel">Cancel</button><button class="btn danger" id="e_del">${armed===s.id?'Tap again':'Delete'}</button></div>
+      <p class="sub" style="margin:0">Leave the price empty to mark it as given free.</p>
+    </div>`;
+  }
+
+  // ---------- Bought ----------
+  function renderBought(){
+    const all = live(data.bought);
+    const ym = today().slice(0,7);
+    const mSpent = all.filter(b=>(b.date||'').startsWith(ym)).reduce((t,b)=>t+(b.cost||0),0);
+    const list = all.filter(b=>!query || key(b.name).includes(key(query))).sort((a,b)=>sortNewest(a,b,'date'));
+    const groups = byMonth(list, 'date');
+    app.innerHTML = header('Bought') + `
+      <form class="form" id="addform" autocomplete="off">
+        <input class="field" id="f_name" list="plantnames" placeholder="Plant or item bought" aria-label="Plant or item bought" enterkeyhint="next">
+        <div class="two">
+          <div class="money"><span>$</span><input class="field" id="f_amt" inputmode="decimal" placeholder="Cost" aria-label="Cost"></div>
+          <input class="field" id="f_date" type="date" value="${today()}" aria-label="Date bought">
+        </div>
+        <button class="btn" type="submit">Add purchase</button>
+      </form>
+      <div class="strip"><span class="pill gold">Spent this month: ${usd(mSpent)}</span><span class="pill">All time: ${usd(all.reduce((t,b)=>t+(b.cost||0),0))}</span></div>
+      <input class="field search" id="q" type="search" placeholder="Search purchases" value="${esc(query)}" aria-label="Search purchases">
+      ${groupsHtml(groups, b=>`<button class="row" data-edit="${b.id}"><span class="name">${esc(b.name)}</span><span class="when">${shortDate(b.date)}</span><span class="amt">${usd(b.cost||0)}</span></button>${editing===b.id?editBought(b):''}`,
+        items=>`${items.length} · ${usd(items.reduce((t,b)=>t+(b.cost||0),0))}`,
+        query ? 'No purchases match that search.' : 'No purchases yet. Add one above.')}`;
+    const fName=document.getElementById('f_name'), fAmt=document.getElementById('f_amt'), fDate=document.getElementById('f_date');
+    document.getElementById('addform').addEventListener('submit', e=>{
+      e.preventDefault();
+      const name=fName.value.trim(); if(!name){ fName.focus(); return; }
+      const cost=parseMoney(fAmt.value); if(cost==null){ toast('Enter what it cost'); fAmt.focus(); return; }
+      data.bought.push({id:uid(), name, cost, date:fDate.value||today(), c:now(), u:now()});
+      save(); const keep=fDate.value; render(); document.getElementById('f_date').value=keep; document.getElementById('f_name').focus();
+      toast(`Added ${name}`);
+    });
+    wireList('bought');
+  }
+  function editBought(b){
+    return `<div class="edit">
+      <input class="field" id="e_name" list="plantnames" value="${esc(b.name)}" aria-label="Name">
+      <div class="two"><div class="money"><span>$</span><input class="field" id="e_amt" inputmode="decimal" value="${b.cost??''}" aria-label="Cost"></div>
+      <input class="field" id="e_date" type="date" value="${esc(b.date||'')}" aria-label="Date"></div>
+      <div class="actions"><button class="btn" id="e_save" style="flex:1">Save</button><button class="btn ghost" id="e_cancel">Cancel</button><button class="btn danger" id="e_del">${armed===b.id?'Tap again':'Delete'}</button></div>
+    </div>`;
+  }
+
+  // ---------- Pots & Supplies ----------
+  let supplyView = 'stock';
+  function renderSupplies(){
+    const all = live(data.supplies);
+    const stock = all.filter(p=>p.soldPrice==null), sold = all.filter(p=>p.soldPrice!=null);
+    const nextNum = all.reduce((m,p)=>Math.max(m, p.num||0), 0) + 1;
+    const pick = supplyView==='sold' ? sold : stock;
+    const list = pick.filter(p=>!query || key(p.name).includes(key(query)) || String(p.num)===query.trim())
+      .sort((a,b)=> supplyView==='sold' ? (b.soldDate||'').localeCompare(a.soldDate||'') : (b.num||0)-(a.num||0));
+    // Count of each kind still on hand, e.g. "Clay pot × 15"
+    const kinds = new Map(); stock.forEach(p=>{ const k=key(p.name); const e=kinds.get(k)||{name:p.name,n:0,cost:0}; e.n++; e.cost+=p.cost||0; kinds.set(k,e); });
+    app.innerHTML = header('Pots & Supplies') + `
+      <form class="form" id="addform" autocomplete="off">
+        <input class="field" id="f_name" list="supplynames" placeholder="Pot or supply, like Clay pot" aria-label="Pot or supply" enterkeyhint="next">
+        <div class="two">
+          <div class="money"><span>$</span><input class="field" id="f_amt" inputmode="decimal" placeholder="Cost each" aria-label="Cost each"></div>
+          <input class="field" id="f_qty" inputmode="numeric" placeholder="How many (1)" aria-label="How many">
+        </div>
+        <div class="two"><input class="field" id="f_date" type="date" value="${today()}" aria-label="Date bought"><button class="btn" type="submit">Add #${nextNum}</button></div>
+      </form>
+      <div class="strip">
+        <span class="pill">${stock.length} on hand · ${usd(stock.reduce((t,p)=>t+(p.cost||0),0))}</span>
+        <span class="pill gold">${sold.length} sold · ${usd(sold.reduce((t,p)=>t+(p.soldPrice||0),0))}</span>
+      </div>
+      <div class="actions" style="margin-bottom:10px">
+        <button class="chip" data-view="stock" aria-pressed="${supplyView==='stock'}">On hand</button>
+        <button class="chip" data-view="sold" aria-pressed="${supplyView==='sold'}">Sold</button>
+        <button class="chip" data-view="kinds" aria-pressed="${supplyView==='kinds'}">Counts</button>
+      </div>
+      ${supplyView==='kinds'
+        ? ([...kinds.values()].length ? `<div class="list">${[...kinds.values()].sort((a,b)=>b.n-a.n).map(k=>`<div class="row" style="cursor:default"><span class="name">${esc(k.name)}</span><span class="when">× ${k.n}</span><span class="amt">${usd(k.cost)}</span></div>`).join('')}</div>` : '<div class="empty">Nothing on hand.</div>')
+        : `<input class="field search" id="q" type="search" placeholder="Search by name or #" value="${esc(query)}" aria-label="Search supplies">` +
+          (list.length ? `<div class="list">${list.slice(0, shown*20).map(p=>`<button class="row" data-edit="${p.id}"><span class="itemno">#${p.num??''}</span><span class="name">${esc(p.name)}</span><span class="when">${supplyView==='sold'?'sold '+shortDate(p.soldDate):shortDate(p.date)}</span><span class="amt">${supplyView==='sold'?usd(p.soldPrice||0):usd(p.cost||0)}</span></button>${editing===p.id?editSupply(p):''}`).join('')}</div>
+            ${list.length>shown*20?`<button class="btn ghost more" id="more">Show more</button>`:''}`
+          : `<div class="empty">${query?'Nothing matches that search.':supplyView==='sold'?'Nothing sold yet. Open an item and tap Mark sold.':'Nothing on hand. Add pots and supplies above.'}</div>`)}`;
+    app.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{ supplyView=b.dataset.view; editing=null; query=''; shown=6; render(); });
+    const fName=document.getElementById('f_name'), fAmt=document.getElementById('f_amt'), fQty=document.getElementById('f_qty'), fDate=document.getElementById('f_date');
+    document.getElementById('addform').addEventListener('submit', e=>{
+      e.preventDefault();
+      const name=fName.value.trim(); if(!name){ fName.focus(); return; }
+      const cost=parseMoney(fAmt.value); if(cost==null){ toast('Enter what each one cost'); fAmt.focus(); return; }
+      const qty=Math.max(1, Math.min(200, parseInt(fQty.value,10)||1));
+      let n=nextNum; for(let i=0;i<qty;i++) data.supplies.push({id:uid(), num:n++, name, cost, date:fDate.value||today(), soldPrice:null, soldDate:null, c:now()+i, u:now()});
+      save(); supplyView='stock'; render(); document.getElementById('f_name').focus();
+      toast(qty>1 ? `Added ${qty} × ${name} (#${nextNum}–#${n-1})` : `Added #${nextNum} ${name}`);
+    });
+    const more=document.getElementById('more'); if(more) more.onclick=()=>{ shown+=6; render(); };
+    wireList('supplies');
+  }
+  function editSupply(p){
+    const isSold = p.soldPrice!=null;
+    return `<div class="edit">
+      <input class="field" id="e_name" list="supplynames" value="${esc(p.name)}" aria-label="Name">
+      <div class="two"><div class="money"><span>$</span><input class="field" id="e_amt" inputmode="decimal" value="${p.cost??''}" aria-label="Cost"></div>
+      <input class="field" id="e_date" type="date" value="${esc(p.date||'')}" aria-label="Date bought"></div>
+      <div class="sub" style="font-weight:600;margin-top:4px">${isSold?'Sold':'Mark sold'}</div>
+      <div class="two"><div class="money"><span>$</span><input class="field" id="e_sold" inputmode="decimal" value="${p.soldPrice??''}" placeholder="Sold for" aria-label="Sold for"></div>
+      <input class="field" id="e_sdate" type="date" value="${esc(p.soldDate||today())}" aria-label="Date sold"></div>
+      <div class="actions"><button class="btn" id="e_save" style="flex:1">Save</button><button class="btn ghost" id="e_cancel">Cancel</button><button class="btn danger" id="e_del">${armed===p.id?'Tap again':'Delete'}</button></div>
+      ${isSold?'<p class="sub" style="margin:0">Clear the sold price to put it back on hand.</p>':'<p class="sub" style="margin:0">Fill in a sold price to move it to Sold.</p>'}
+    </div>`;
+  }
+
+  // Shared list helpers: month groups, tap-to-edit, search, delete twice
+  function groupsHtml(groups, rowHtml, sumText, emptyMsg){
+    if (!groups.length) return `<div class="empty">${emptyMsg}</div>`;
+    const visible = groups.slice(0, query ? groups.length : shown);
+    return visible.map(([ym, items])=>`<div class="month"><span>${ym==='no date'?'No date':monthName(ym)}</span><span class="num">${sumText(items)}</span></div><div class="list">${items.map(rowHtml).join('')}</div>`).join('')
+      + (!query && groups.length>shown ? `<button class="btn ghost more" id="more">Show earlier months</button>` : '');
+  }
+  function wireList(listKey){
+    const q=document.getElementById('q');
+    if (q){ q.addEventListener('input', ()=>{ query=q.value; editing=null; const pos=q.selectionStart; render(); const n=document.getElementById('q'); n.focus(); try{ n.setSelectionRange(pos,pos); }catch(e){} }); }
+    const more=document.getElementById('more'); if(more && !more.onclick) more.onclick=()=>{ shown+=6; render(); };
+    app.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ editing = editing===b.dataset.edit ? null : b.dataset.edit; armed=null; render(); const f=document.getElementById('e_name'); if(f) f.scrollIntoView({block:'nearest'}); });
+    if (!editing) return;
+    const it = data[listKey].find(x=>x.id===editing); if (!it) return;
+    document.getElementById('e_cancel').onclick = ()=>{ editing=null; armed=null; render(); };
+    document.getElementById('e_del').onclick = ()=>{
+      if (armed===it.id){ remove(it); editing=null; armed=null; save(); render(); toast('Deleted'); }
+      else { armed=it.id; render(); }
+    };
+    document.getElementById('e_save').onclick = ()=>{
+      const name=document.getElementById('e_name').value.trim() || it.name;
+      const amt=parseMoney(document.getElementById('e_amt').value);
+      const date=document.getElementById('e_date').value;
+      if (listKey==='sales'){ it.name=name; it.free = amt==null || amt===0 && document.getElementById('e_amt').value.trim()===''; it.price = it.free ? 0 : amt; it.date=date; }
+      else if (listKey==='bought'){ if(amt==null){ toast('Enter what it cost'); return; } it.name=name; it.cost=amt; it.date=date; }
+      else {
+        if(amt==null){ toast('Enter what it cost'); return; }
+        it.name=name; it.cost=amt; it.date=date;
+        const sp=parseMoney(document.getElementById('e_sold').value);
+        it.soldPrice = sp; it.soldDate = sp==null ? null : (document.getElementById('e_sdate').value || today());
+      }
+      touch(it); save(); editing=null; armed=null; render(); toast('Saved');
+    };
+  }
+
+  // ---------- Totals ----------
+  function renderTotals(){
+    const S=live(data.sales), B=live(data.bought), P=live(data.supplies);
+    const years = [...new Set([].concat(S.map(x=>x.date),B.map(x=>x.date),P.map(x=>x.date),P.map(x=>x.soldDate)).filter(Boolean).map(d=>d.slice(0,4)))].sort().reverse();
+    if (totalsYear!=='all' && !years.includes(totalsYear)) totalsYear='all';
+    const inYear = d => totalsYear==='all' || (d||'').startsWith(totalsYear);
+    const s = S.filter(x=>inYear(x.date)), b = B.filter(x=>inYear(x.date)), pb = P.filter(x=>inYear(x.date)), ps = P.filter(x=>x.soldPrice!=null && inYear(x.soldDate));
+    const paid = s.filter(x=>!x.free);
+    const plantSales = paid.reduce((t,x)=>t+(x.price||0),0);
+    const supplySales = ps.reduce((t,x)=>t+(x.soldPrice||0),0);
+    const income = plantSales + supplySales;
+    const plantCost = b.reduce((t,x)=>t+(x.cost||0),0);
+    const supplyCost = pb.reduce((t,x)=>t+(x.cost||0),0);
+    const spent = plantCost + supplyCost;
+    const profit = income - spent;
+    // Month by month
+    const months = new Map();
+    const M = ym => { if(!months.has(ym)) months.set(ym,{sold:0,free:0,income:0,spent:0}); return months.get(ym); };
+    s.forEach(x=>{ const m=M((x.date||'').slice(0,7)||'—'); if(x.free) m.free++; else { m.sold++; m.income+=x.price||0; } });
+    ps.forEach(x=>{ M((x.soldDate||'').slice(0,7)||'—').income += x.soldPrice||0; });
+    b.forEach(x=>{ M((x.date||'').slice(0,7)||'—').spent += x.cost||0; });
+    pb.forEach(x=>{ M((x.date||'').slice(0,7)||'—').spent += x.cost||0; });
+    const rows = [...months.entries()].sort((a,b)=>b[0].localeCompare(a[0]));
+    const short = ym => ym==='—' ? 'No date' : MONTHS[+ym.slice(5)-1].slice(0,3) + (totalsYear==='all' && years.length>1 ? ' ’' + ym.slice(2,4) : '');
+    // Best sellers by money
+    const top = new Map(); paid.forEach(x=>{ const k=key(x.name); const e=top.get(k)||{name:x.name.trim(),n:0,amt:0}; e.n++; e.amt+=x.price||0; top.set(k,e); });
+    const best = [...top.values()].sort((a,b)=>b.amt-a.amt || b.n-a.n).slice(0,8);
+    const avg = paid.length ? plantSales/paid.length : 0;
+    app.innerHTML = header('Totals') + `
+      ${years.length>1 ? `<div class="yearchips">${['all'].concat(years).map(y=>`<button class="chip" data-year="${y}" aria-pressed="${totalsYear===y}">${y==='all'?'All time':y}</button>`).join('')}</div>` : ''}
+      <div class="cards">
+        <div class="card big"><div class="k">Profit${totalsYear==='all'?'':' in '+totalsYear}</div><div class="v num">${usd(profit)}</div><div class="s">${usd(income)} in − ${usd(spent)} out</div></div>
+        <div class="card"><div class="k">Plant sales</div><div class="v num">${usd(plantSales)}</div><div class="s">${paid.length} plants sold</div></div>
+        <div class="card"><div class="k">Average sale</div><div class="v num">${usd(avg)}</div><div class="s">per plant sold</div></div>
+        <div class="card"><div class="k">Spent on plants</div><div class="v num">${usd(plantCost)}</div><div class="s">${b.length} purchases</div></div>
+        <div class="card"><div class="k">Pots & supplies</div><div class="v num">${usd(supplyCost)}</div><div class="s">${pb.length} bought${supplySales?` · ${usd(supplySales)} sold`:''}</div></div>
+        <div class="card"><div class="k">Given free</div><div class="v num">${s.length-paid.length}</div><div class="s">plants</div></div>
+        <div class="card"><div class="k">Pots on hand</div><div class="v num">${P.filter(x=>x.soldPrice==null).length}</div><div class="s">all time</div></div>
+      </div>
+      <div class="month"><span>Month by month</span></div>
+      ${rows.length ? `<div class="tablewrap"><table>
+        <thead><tr><th>Month</th><th>Sold</th><th>In</th><th>Out</th><th>Profit</th></tr></thead>
+        <tbody>${rows.map(([ym,m])=>`<tr><td>${short(ym)}</td><td>${m.sold}${m.free?`<span class="sub" style="font-size:.72rem"> +${m.free}</span>`:''}</td><td>${usdT(m.income)}</td><td>${usdT(m.spent)}</td><td class="${m.income-m.spent<0?'neg':''}">${usdT(m.income-m.spent)}</td></tr>`).join('')}</tbody>
+        <tfoot><tr><td>Total</td><td>${paid.length}</td><td>${usdT(income)}</td><td>${usdT(spent)}</td><td class="${profit<0?'neg':''}">${usdT(profit)}</td></tr></tfoot>
+      </table></div><p class="sub" style="margin:6px 4px 0">"+3" means 3 more given free that month.</p>` : '<div class="empty">Nothing recorded yet.</div>'}
+      <div class="month"><span>Best sellers</span><span>by money made</span></div>
+      ${best.length ? `<div class="list">${best.map((x,i)=>`<div class="row" style="cursor:default"><span class="itemno">${i+1}</span><span class="name">${esc(x.name)}</span><span class="when">× ${x.n}</span><span class="amt">${usd(x.amt)}</span></div>`).join('')}</div>` : '<div class="empty">No sales yet.</div>'}`;
+    app.querySelectorAll('[data-year]').forEach(b=>b.onclick=()=>{ totalsYear=b.dataset.year; render(); });
+  }
+
+  // ---------- Connect: link a phone-only copy to the shared records, keeping what's on it ----------
+  function connectPanel(){
+    return `<div class="connect"><b>Connect to the shared records</b>
+      <p class="sub" style="margin:4px 0 10px">Paste the Plant Ledger link from your texts. Anything already on this phone is kept and added in.</p>
+      <div class="actions"><input class="field" id="connlink" type="url" placeholder="Paste the link here" style="flex:1" aria-label="Plant Ledger link"><button class="btn" id="connbtn" type="button">Connect</button></div>
+      <button type="button" class="btn ghost" id="conncancel" style="margin-top:8px">Not now</button></div>`;
+  }
+  function wireConnect(){
+    const inp=document.getElementById('connlink');
+    document.getElementById('conncancel').onclick=()=>{ connectOpen=false; render(); };
+    document.getElementById('connbtn').onclick=()=>{
+      const m=inp.value.trim().match(/https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec/);
+      if (!m){ toast("That doesn't look like the Plant Ledger link. Copy the whole link and try again."); inp.focus(); return; }
+      try { localStorage.setItem(LS_SYNC, m[0]); } catch(e){}
+      setDirty(true); store();
+      location.replace(location.pathname + '?sync=' + m[0]);
+    };
+    inp.focus();
+  }
+  document.addEventListener('click', e=>{ if (e.target.closest('#sync') && status==='none'){ connectOpen=true; render(); } });
+
+  // ---------- background pictures ----------
+  const BG_KEY = LS + '-bg-';
+  function getBg(k){ try { return localStorage.getItem(BG_KEY+k) || ''; } catch(e){ return ''; } }
+  function applyBg(){ const url=getBg(tab); document.body.classList.toggle('has-bg', !!url); document.getElementById('bg').style.backgroundImage = url ? `url("${url}")` : ''; }
+  function addBgButton(){
+    const h=app.querySelector('header'); if(!h) return;
+    const has=!!getBg(tab);
+    h.insertAdjacentHTML('beforeend', `<button type="button" class="bgbtn" id="bgbtn" aria-label="Background picture for this page">🖼</button>`);
+    document.getElementById('bgbtn').onclick=()=>{ if(has){ bgMenu=!bgMenu; render(); } else document.getElementById('bgfile').click(); };
+    if (bgMenu && has){
+      h.insertAdjacentHTML('afterend', `<div class="bgmenu"><button class="btn ghost" id="bgchange">Change picture</button><button class="btn danger" id="bgremove">Remove picture</button></div>`);
+      document.getElementById('bgchange').onclick=()=>{ bgMenu=false; render(); document.getElementById('bgfile').click(); };
+      document.getElementById('bgremove').onclick=()=>{ try{ localStorage.removeItem(BG_KEY+tab); }catch(e){} bgMenu=false; render(); toast('Picture removed'); };
+    }
+  }
+  document.getElementById('bgfile').addEventListener('change', e=>{
+    const file=e.target.files && e.target.files[0]; e.target.value=''; if(!file) return;
+    const k=BG_KEY+tab, rd=new FileReader();
+    rd.onload=()=>{ const img=new Image(); img.onload=()=>{
+      const sc=Math.min(1, 1280/Math.max(img.width,img.height)), c=document.createElement('canvas');
+      c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc); c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      try { localStorage.setItem(k, c.toDataURL('image/jpeg',0.72)); } catch(err){ try { localStorage.setItem(k, c.toDataURL('image/jpeg',0.5)); } catch(err2){ toast('That picture is too big to save. Try another.'); return; } }
+      bgMenu=false; render(); };
+      img.onerror=()=>toast("Couldn't open that picture."); img.src=rd.result; };
+    rd.readAsDataURL(file);
+  });
+
+  // ---------- frame ----------
+  function renderNav(){
+    nav.innerHTML = TABS.map(t=>`<button class="tab" data-tab="${t.id}" ${t.id===tab?'aria-current="page"':''}><span class="ic" aria-hidden="true">${t.ic}</span><span class="lbl">${t.label}</span></button>`).join('');
+    nav.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>go(b.dataset.tab));
+  }
+  function render(){
+    fillSuggestions();
+    if (tab==='sales') renderSales();
+    else if (tab==='bought') renderBought();
+    else if (tab==='supplies') renderSupplies();
+    else renderTotals();
+    if (connectOpen && status==='none'){ const h=app.querySelector('header'); if(h){ h.insertAdjacentHTML('afterend', connectPanel()); wireConnect(); } }
+    applyBg(); addBgButton(); renderNav(); showStatus();
+  }
+
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') sync(); });
+  setInterval(()=>{ if(document.visibilityState!=='hidden') sync(); }, 20000);
+  store();
+  try { render(); } catch(e){ app.innerHTML = '<div class="empty">Something went wrong. Reload to try again.</div>'; }
+  sync();
+})();
+</script>
+</body>
+</html>
