@@ -359,7 +359,8 @@
   }
   function editSale(s){
     return `<div class="edit">
-      <input class="field" id="e_name" list="plantnames" value="${esc(s.name)}" aria-label="Plant">
+      <input class="field" id="e_name" autocorrect="off" value="${esc(s.name)}" aria-label="Plant">
+      <div class="sugg" id="e_sugg"></div>
       <div class="two"><div class="money"><span>$</span><input class="field" id="e_amt" inputmode="decimal" value="${s.free?'':(s.price??'')}" placeholder="Free" aria-label="Price"></div>
       <input class="field" id="e_date" type="date" value="${esc(s.date||'')}" aria-label="Date"></div>
       <div class="actions"><button class="btn" id="e_save" style="flex:1">Save</button><button class="btn ghost" id="e_cancel">Cancel</button><button class="btn danger" id="e_del">${armed===s.id?'Tap again':'Delete'}</button></div>
@@ -403,7 +404,8 @@
   }
   function editBought(b){
     return `<div class="edit">
-      <input class="field" id="e_name" list="plantnames" value="${esc(b.name)}" aria-label="Name">
+      <input class="field" id="e_name" autocorrect="off" value="${esc(b.name)}" aria-label="Name">
+      <div class="sugg" id="e_sugg"></div>
       <div class="two"><div class="money"><span>$</span><input class="field" id="e_amt" inputmode="decimal" value="${b.cost??''}" aria-label="Cost"></div>
       <input class="field" id="e_date" type="date" value="${esc(b.date||'')}" aria-label="Date"></div>
       <div class="actions"><button class="btn" id="e_save" style="flex:1">Save</button><button class="btn ghost" id="e_cancel">Cancel</button><button class="btn danger" id="e_del">${armed===b.id?'Tap again':'Delete'}</button></div>
@@ -464,7 +466,8 @@
   function editSupply(p){
     const isSold = p.soldPrice!=null;
     return `<div class="edit">
-      <input class="field" id="e_name" list="supplynames" value="${esc(p.name)}" aria-label="Name">
+      <input class="field" id="e_name" autocorrect="off" value="${esc(p.name)}" aria-label="Name">
+      <div class="sugg" id="e_sugg"></div>
       <div class="two"><div class="money"><span>$</span><input class="field" id="e_amt" inputmode="decimal" value="${p.cost??''}" aria-label="Cost"></div>
       <input class="field" id="e_date" type="date" value="${esc(p.date||'')}" aria-label="Date bought"></div>
       <div class="sub" style="font-weight:600;margin-top:4px">${isSold?'Sold':'Mark sold'}</div>
@@ -485,6 +488,21 @@
   function wireList(listKey){
     const q=document.getElementById('q');
     if (q){ q.addEventListener('input', ()=>{ query=q.value; editing=null; const pos=q.selectionStart; render(); const n=document.getElementById('q'); n.focus(); try{ n.setSelectionRange(pos,pos); }catch(e){} }); }
+    const priceOf = listKey==='sales' ? (x=>x.free?null:x.price) : (x=>x.cost);
+    if (q && query.trim()){
+      // bubbles under the search box: tap one to show just that plant
+      const qk=key(query), seen=new Map();
+      live(data[listKey]).forEach(x=>{ const k=key(x.name); if(k.includes(qk) && k!==qk) seen.set(k,{name:x.name,n:(seen.get(k)?.n||0)+1}); });
+      const hits=[...seen.values()].sort((a,b)=>(key(b.name).startsWith(qk)-key(a.name).startsWith(qk)) || b.n-a.n).slice(0,6);
+      if (hits.length){
+        const box=document.createElement('div'); box.className='sugg'; box.style.margin='-2px 0 10px';
+        box.innerHTML=hits.map((h,i)=>`<button type="button" data-i="${i}"><b>${esc(h.name)}</b><span>${h.n}×</span></button>`).join('');
+        q.after(box);
+        box.querySelectorAll('button').forEach(b=>{ b.addEventListener('pointerdown',ev=>ev.preventDefault()); b.onclick=()=>{ query=hits[+b.dataset.i].name; editing=null; render(); }; });
+      }
+    }
+    const eName=document.getElementById('e_name'), eSugg=document.getElementById('e_sugg');
+    if (eName && eSugg) suggest(eName, null, live(data[listKey]), priceOf, eSugg);
     const more=document.getElementById('more'); if(more && !more.onclick) more.onclick=()=>{ shown+=6; render(); };
     app.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ editing = editing===b.dataset.edit ? null : b.dataset.edit; armed=null; render(); const f=document.getElementById('e_name'); if(f) f.scrollIntoView({block:'nearest'}); });
     if (!editing) return;
