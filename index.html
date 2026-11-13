@@ -22,6 +22,7 @@
   header{display:flex;align-items:center;gap:2vw;flex:0 0 auto;margin-bottom:2vw}
   header h1{font-size:1.15em;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .sub{color:var(--dim);font-size:.75em}
+  .sub .sub{font-size:1em}
   .scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:4px}
   button,input,textarea{font:inherit;color:inherit}
   button{background:transparent;border:2px solid var(--line);border-radius:14px;padding:.45em .7em;text-align:left;cursor:pointer}
@@ -158,21 +159,23 @@
 
   // ---------- sync ----------
   const SUBS = PROJECT_TABS.map(t=>t.id);
-  function mergeList(a, b, isProject){
+  const JOB_SUBS = ['tasks','materials'];
+  const NEST = {projects:SUBS, honeydo:JOB_SUBS};   // lists that have lists inside each item
+  function mergeList(a, b, subs){
     const m = new Map();
     (a||[]).forEach(x=>m.set(x.id, x));
     (b||[]).forEach(y=>{
       const x = m.get(y.id);
       if (!x){ m.set(y.id, y); return; }
       const out = Object.assign({}, (y.u||0) > (x.u||0) ? y : x);
-      if (isProject) SUBS.forEach(k=>out[k]=mergeList(x[k], y[k], false));
+      if (subs) subs.forEach(k=>out[k]=mergeList(x[k], y[k], null));
       m.set(y.id, out);
     });
     return [...m.values()];
   }
   function mergeData(a, b){
     const out = Object.assign({}, a, {importedTracker:true});
-    SECTIONS.forEach(s=>out[s.id]=mergeList(a[s.id], b && b[s.id], s.id==='projects'));
+    SECTIONS.forEach(s=>out[s.id]=mergeList(a[s.id], b && b[s.id], NEST[s.id]));
     return out;
   }
   // Apply the other device's changes INTO the data already on screen (same objects),
@@ -181,17 +184,17 @@
     Object.keys(t).forEach(k=>{ if(!(k in s) && !keep.includes(k)) delete t[k]; });
     Object.keys(s).forEach(k=>{ if(!keep.includes(k)) t[k]=s[k]; });
   }
-  function mergeListInto(local, remote, isProject){
+  function mergeListInto(local, remote, subs){
     const byId = new Map(local.map(x=>[x.id, x]));
     (remote||[]).forEach(y=>{
       const x = byId.get(y.id);
       if (!x){ local.push(y); byId.set(y.id, y); return; }
-      if ((y.u||0) > (x.u||0)) replaceObj(x, y, isProject ? SUBS : []);
-      if (isProject) SUBS.forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; mergeListInto(x[k], y[k], false); });
+      if ((y.u||0) > (x.u||0)) replaceObj(x, y, subs || []);
+      if (subs) subs.forEach(k=>{ if(!Array.isArray(x[k])) x[k]=[]; mergeListInto(x[k], y[k], null); });
     });
   }
   function mergeInto(d, remote){
-    SECTIONS.forEach(s=>{ if(!Array.isArray(d[s.id])) d[s.id]=[]; mergeListInto(d[s.id], remote && remote[s.id], s.id==='projects'); });
+    SECTIONS.forEach(s=>{ if(!Array.isArray(d[s.id])) d[s.id]=[]; mergeListInto(d[s.id], remote && remote[s.id], NEST[s.id]); });
     d.importedTracker = true;
   }
 
@@ -231,7 +234,7 @@
   }
 
   // Re-draw after new data arrives without yanking the cursor around.
-  const FOCUS_ATTRS=['data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  const FOCUS_ATTRS=['data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
   function refresh(){
     const a=document.activeElement;
     if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
@@ -397,7 +400,8 @@
         <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
       </div>` : `
       <div class="row">
-        <button class="main" data-toggle="${it.id}"><span class="t">${esc(it.text)}</span>${ageBadge(it)}</button>
+        <button class="main block" data-job="${it.id}" aria-label="Open ${esc(it.text)}"><span class="t">${esc(it.text)}</span><div class="sub" style="display:flex;gap:.6em">${ageBadge(it)}${jobInfo(it)}</div></button>
+        <button class="x" data-toggle="${it.id}" aria-label="Mark done" style="color:var(--good)">○</button>
         <button class="x" data-pri="${it.id}" aria-label="Change priority" style="color:${PRI_COLOR[p]}">P${p}</button>
         <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
       </div>${pickerRow(it)}`).join('');
@@ -416,6 +420,7 @@
     wireChecklist(()=>data[sec.id]);
     app.querySelectorAll('[data-ptab]').forEach(b=>b.onclick=()=>{ priOpen=null; go(`#/${sec.id}/${b.dataset.ptab}`, true); focusSel(`[data-ptab="${b.dataset.ptab}"]`); });
     wirePriPicker(arr);
+    app.querySelectorAll('[data-job]').forEach(b=>b.onclick=()=>{ priOpen=null; go(`#/job/${b.dataset.job}/tasks`); });
     const clr=document.getElementById('clear');
     if(clr) clr.onclick=()=>{
       if(armed==='clear'){ doneItems.forEach(remove); armed=null; save(); render(); focusFirst(); }
@@ -427,6 +432,45 @@
       if (r.pri!==p) go(`#/${sec.id}/${r.pri}`, true); else render();
       focusSel('#newi');
     });
+    if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
+  }
+
+  // ----- One Honey-Do job: its tasks and the materials it needs -----
+  const JOB_TABS = [
+    {id:'tasks', label:'Tasks', ph:'Add a task'},
+    {id:'materials', label:'Materials', ph:'Add a material'}
+  ];
+  function jobInfo(it){
+    const t=live(it.tasks), m=live(it.materials);
+    if (!t.length && !m.length) return '';
+    const parts=[];
+    if (t.length) parts.push(`${t.filter(x=>x.done).length}/${t.length} tasks`);
+    if (m.length) parts.push(`${m.length} mat.`);
+    return `<span>${parts.join(' · ')}</span>`;
+  }
+  function renderJob(id, tabId){
+    const j=live(data.honeydo).find(x=>x.id===id); if(!j) return go('#/honeydo', true);
+    const tab=JOB_TABS.find(t=>t.id===tabId)||JOB_TABS[0];
+    JOB_TABS.forEach(t=>{ if(!Array.isArray(j[t.id])) j[t.id]=[]; });
+    const ts=live(j.tasks), td=ts.filter(x=>x.done).length, pct=ts.length?Math.round(td/ts.length*100):0;
+    const pr=priOf(j);
+    const matLeft=live(j.materials).filter(x=>!x.done).length;
+    app.innerHTML = header(esc(j.text), '#/honeydo', `<span style="color:${PRI_COLOR[pr]}">P${pr}</span>${ts.length?' · '+pct+'%':''}`) + `
+      ${ts.length?`<div class="bar" style="margin:0 0 2vw"><i style="width:${pct}%"></i></div>`:''}
+      <div class="tabs" role="tablist">${JOB_TABS.map(t=>{ const c=live(j[t.id]).length; return `<button role="tab" data-jtab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`; }).join('')}</div>
+      <div class="scroll">
+        ${tab.id==='materials' && live(j.materials).length ? `<div class="sub" style="margin:0 0 2vw .3em">${matLeft?`Check off what you've got. ${matLeft} still to get.`:'Got everything. No excuses now.'}</div>`:''}
+        ${checklistRows(j[tab.id]) || `<div class="empty">${tab.id==='tasks'?'No tasks yet.<br>Break it into steps below.':'No materials yet.<br>Add what you need to buy or grab.'}</div>`}
+        <div class="row"><button class="main small" id="jobdone" style="justify-content:center;color:var(--good)">${j.done?'↩ Put job back on the list':'✔ Mark whole job done'}</button></div>
+      </div>` + addBox(tab.ph);
+    wireBack('#/honeydo');
+    app.querySelectorAll('[data-jtab]').forEach(b=>b.onclick=()=>{ go(`#/job/${j.id}/${b.dataset.jtab}`, true); focusSel(`[data-jtab="${b.dataset.jtab}"]`); });
+    wireChecklist(()=>j[tab.id]);
+    document.getElementById('jobdone').onclick=()=>{
+      j.done=!j.done; if (j.done) j.doneAt=now(); else delete j.doneAt;
+      touch(j); save(); goBack('#/honeydo');
+    };
+    wireAdd(t=>{ j[tab.id].push(newItem(t)); save(); render(); focusSel('#newi'); });
     if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
   }
 
@@ -608,7 +652,7 @@
   const IS_PHONE = (()=>{ try { return innerHeight > innerWidth*1.2 && matchMedia('(pointer: coarse)').matches; } catch(e){ return false; } })();
   const BG_KEY = 'mrbd-home-hub-bg-';
   let bgMenu = false;
-  function pageKey(){ const a = route().a; return a==='' ? 'home' : a==='p' ? 'projects' : a==='note' ? 'notes' : a; }
+  function pageKey(){ const a = route().a; return a==='' ? 'home' : a==='p' ? 'projects' : a==='note' ? 'notes' : a==='job' ? 'honeydo' : a; }
   function getBg(k){ try { return localStorage.getItem(BG_KEY+k) || ''; } catch(e){ return ''; } }
   function applyBg(){
     const url = IS_PHONE ? getBg(pageKey()) : '';
@@ -661,6 +705,7 @@
     const sec=SECTIONS.find(s=>s.id===r.a);
     if (r.a==='p' && r.b) renderProject(r.b, r.c);
     else if (r.a==='projects') renderProjects(r.b);
+    else if (r.a==='job' && r.b) renderJob(r.b, r.c);
     else if (r.a==='notes') renderNotes(r.b);
     else if (r.a==='note' && r.b) renderNote(r.b);
     else if (r.a==='contacts') renderContacts(r.b);
