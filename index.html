@@ -63,6 +63,8 @@
   .crossed .nd, .crossed .ns{color:inherit}
   .hdrow .x{min-width:1.7em;padding:.45em .3em}
   .hdrow .t{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.2}
+  .row.done.onhand .t{color:var(--good);text-decoration:none}
+  .row.done.onhand .check{color:var(--good)}
   .editbox{margin:0 0 2vw}
   .ediin{flex:1;min-width:0;background:var(--field);border:2px solid var(--accent);border-radius:14px;padding:.45em .7em}
   body.has-bg .ediin{background-color:rgba(0,0,0,.55)}
@@ -105,9 +107,9 @@
   body.light.has-bg header h1, body.light.has-bg header .sub, body.light.has-bg .empty, body.light.has-bg > #app .scroll > .sub{background:rgba(255,255,255,.65);border-radius:10px;padding:0 .3em}
   body.light #bg::after{background:rgba(255,255,255,.08)}
   /* Phone: rows with side buttons put the buttons underneath, so the full text runs across */
-  body.light .row:has(> .main):has(> .x){flex-wrap:wrap;row-gap:1.5vw}
-  body.light .row:has(> .main):has(> .x) > .main{flex:1 1 100%}
-  body.light .row:has(> .main):has(> .x) > .x{flex:1 1 0;min-width:0;padding:.3em .2em;font-size:.85em}
+  body.light .row:has(> .main):has(> .x ~ .x){flex-wrap:wrap;row-gap:1.5vw}
+  body.light .row:has(> .main):has(> .x ~ .x) > .main{flex:1 1 100%}
+  body.light .row:has(> .main):has(> .x ~ .x) > .x{flex:1 1 0;min-width:0;padding:.3em .2em;font-size:.85em}
   body.light .row .t, body.light .hdrow .t{white-space:normal;overflow:visible;display:block;-webkit-line-clamp:unset;line-height:1.25}
   body.light .gtabs button{font-size:.6em;padding:.35em .05em} body.light .gtabs .cnt{margin-left:.1em}
 </style>
@@ -280,7 +282,7 @@
   }
 
   // Re-draw after new data arrives without yanking the cursor around.
-  const FOCUS_ATTRS=['data-edit','data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  const FOCUS_ATTRS=['data-mtog','data-edit','data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
   function refresh(){
     const a=document.activeElement;
     if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
@@ -358,9 +360,9 @@
     if (!IS_PHONE) inp.addEventListener('change', ()=>{ if(inp.value.trim()) commit(); });   // glasses dictation
     inp.focus(); try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch(e){}
   }
-  function checklistRows(arr, editable){
+  function checklistRows(arr, editable, onhand){
     return live(arr).map(it=> editable && editItem===it.id ? editRow(it.text) : `
-      <div class="row ${it.done?'done':''}">
+      <div class="row ${it.done?(onhand?'done onhand':'done'):''}">
         <button class="main" data-toggle="${it.id}"><span class="t">${esc(it.text)}</span><span class="check">${it.done?'✔':'○'}</span></button>
         ${editable?`<button class="x" data-edit="${it.id}" aria-label="Change">✏️</button>`:''}
         <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
@@ -399,7 +401,7 @@
         const open=live(data[s.id]).filter(i=>!i.done), hot=open.filter(i=>priOf(i)===1).length;
         info = open.length ? `${open.length} to do${hot?` · <span style="color:${PRI_COLOR[1]}">${hot} urgent</span>`:''}` : '';
       }
-      else { const n=countOpen(data[s.id]); info = n ? `${n} to do` : ''; }
+      else { const n=countOpen(data[s.id]) + (s.id==='shopping' ? linkedMaterials().filter(x=>!x.m.done).length : 0); info = n ? `${n} to ${s.id==='shopping'?'get':'do'}` : ''; }
       return `<div class="row menu"><button class="main" data-go="${s.id}">
         <span><span class="icon">${s.icon}</span>${s.label}</span><span class="sub">${info}</span></button></div>`;
     }).join('');
@@ -533,7 +535,7 @@
       <div class="tabs" role="tablist">${JOB_TABS.map(t=>{ const c=live(j[t.id]).length; return `<button role="tab" data-jtab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`; }).join('')}</div>
       <div class="scroll">
         ${tab.id==='materials' && live(j.materials).length ? `<div class="sub" style="margin:0 0 2vw .3em">${matLeft?`Check off what you've got. ${matLeft} still to get.`:'Got everything. No excuses now.'}</div>`:''}
-        ${checklistRows(j[tab.id], true) || `<div class="empty">${tab.id==='tasks'?'No tasks yet.<br>Break it into steps below.':'No materials yet.<br>Add what you need to buy or grab.'}</div>`}
+        ${checklistRows(j[tab.id], true, tab.id==='materials') || `<div class="empty">${tab.id==='tasks'?'No tasks yet.<br>Break it into steps below.':'No materials yet.<br>Add what you need to buy or grab.'}</div>`}
         ${editItem==='jname' ? editRow(j.text, 'Job name') : `<div class="row"><button class="main small" id="renj" style="justify-content:center">✏️ Rename job</button></div>`}
         <div class="row"><button class="main small" id="jobdone" style="justify-content:center;color:var(--good)">${j.done?'↩ Put job back on the list':'✔ Mark whole job done'}</button></div>
       </div>` + addBox(tab.ph);
@@ -550,7 +552,51 @@
     if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
   }
 
+  // Materials from open Honey-Do jobs and projects show up on Shopping automatically,
+  // in their job's / project's priority color. Checking one off marks it on hand everywhere.
+  function linkedMaterials(){
+    const out=[];
+    live(data.honeydo).filter(j=>!j.done).forEach(j=>live(j.materials).forEach(m=>out.push({m, from:j.text, pri:priOf(j), key:'h|'+j.id+'|'+m.id})));
+    live(data.projects).forEach(p=>live(p.materials).forEach(m=>out.push({m, from:p.name, pri:priOf(p), key:'p|'+p.id+'|'+m.id})));
+    return out.sort((a,b)=>(a.m.done-b.m.done)||(a.pri-b.pri)||a.m.text.localeCompare(b.m.text));
+  }
+  function renderShopping(sec){
+    const arr = data[sec.id], linked = linkedMaterials();
+    const own = live(arr).slice().sort((a,b)=>a.done-b.done);
+    const doneOwn = own.filter(i=>i.done);
+    const lRows = linked.map(x=>`<div class="row ${x.m.done?'done':''}">
+        <button class="main" data-mtog="${x.key}" aria-label="${esc(x.m.text)}, ${x.m.done?'on hand':'need it'}">
+          <span style="min-width:0"><span class="t" style="${x.m.done?'':'color:'+PRI_COLOR[x.pri]}">${esc(x.m.text)}</span>
+          <span class="sub" style="display:block">P${x.pri} · ${esc(x.from)}${x.m.done?' · on hand':''}</span></span>
+          <span class="check">${x.m.done?'✔':'○'}</span></button>
+      </div>`).join('');
+    const openN = own.filter(i=>!i.done).length + linked.filter(x=>!x.m.done).length;
+    app.innerHTML = header(`${sec.icon} ${sec.label}`, '#/', `${openN} left`) + `
+      <div class="scroll">
+        ${linked.length?`<div class="sub" style="margin:0 0 1.5vw .3em">From Honey-Do &amp; Projects</div>${lRows}`:''}
+        ${own.length?`<div class="sub" style="margin:2vw 0 1.5vw .3em">${linked.length?'Other items':''}</div>`:''}
+        ${checklistRows(own) || (linked.length?'':`<div class="empty">All clear. Enjoy it while it lasts.</div>`)}
+        ${doneOwn.length?`<div class="row"><button class="main small ${armed==='clear'?'danger':''}" id="clear" style="justify-content:center">${armed==='clear'?'Press again to clear':'Clear '+doneOwn.length+' done'}</button></div>`:''}
+      </div>` + addBox(sec.ph);
+    wireBack('#/');
+    wireChecklist(()=>data[sec.id]);
+    app.querySelectorAll('[data-mtog]').forEach(b=>b.onclick=()=>{
+      const [src,pid,mid]=b.dataset.mtog.split('|');
+      const parent=(src==='h'?data.honeydo:data.projects).find(x=>x.id===pid);
+      const m=parent && (parent.materials||[]).find(x=>x.id===mid); if(!m) return;
+      m.done=!m.done; if(m.done) m.doneAt=now(); else delete m.doneAt; touch(m); save(); render();
+      focusSel(`[data-mtog="${b.dataset.mtog}"]`) || focusFirst();
+    });
+    const clr=document.getElementById('clear');
+    if(clr) clr.onclick=()=>{
+      if(armed==='clear'){ doneOwn.forEach(remove); armed=null; save(); render(); focusFirst(); }
+      else { armed='clear'; render(); focusSel('#clear'); }
+    };
+    wireAdd(t=>{ data[sec.id].push(newItem(t)); save(); render(); focusSel('#newi'); });
+    if(!app.contains(document.activeElement)) focusFirst();
+  }
   function renderList(sec){
+    if (sec.id==='shopping') return renderShopping(sec);
     const arr = data[sec.id];
     const doneItems = live(arr).filter(i=>i.done);
     app.innerHTML = header(`${sec.icon} ${sec.label}`, '#/', `${countOpen(arr)} left`) + `
@@ -607,7 +653,7 @@
     app.innerHTML = header(esc(p.name), '#/projects', g.n?g.pct+'%':'') + `
       <div class="tabs" role="tablist">${PROJECT_TABS.map(t=>{ const c=live(p[t.id]).length; return `<button role="tab" data-tab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`; }).join('')}</div>
       <div class="scroll">
-        ${checklistRows(p[tab.id], true) || '<div class="empty">Nothing here yet.</div>'}
+        ${checklistRows(p[tab.id], true, tab.id==='materials') || '<div class="empty">Nothing here yet.</div>'}
         ${editItem==='pname' ? editRow(p.name, 'Project name') : `<div class="row"><button class="main small" id="renp" style="justify-content:center">✏️ Rename project</button></div>`}
         <div class="row"><button class="main small ${armed===p.id?'danger':''}" id="delp" style="justify-content:center">${armed===p.id?'Press again to delete project':'🗑 Delete project'}</button></div>
       </div>` + addBox(tab.ph);
