@@ -614,13 +614,14 @@
         const n=all.filter(c=>(c.cat||'personal')===t.id).length;
         return `<button role="tab" data-ctab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}<span class="cnt${n?'':' zero'}">${n}</span></button>`;
       }).join('')}</div>` +
-      `<div class="scroll"><div class="row"><button class="main small" id="newc" style="justify-content:center;color:var(--accent)">＋ New ${tab.id==='work'?'work ':''}contact</button></div>
+      `<div class="scroll"><div class="row"><button class="main small" id="newc" style="justify-content:center;color:var(--accent)">＋ New ${tab.id==='work'?'work ':''}contact</button>${IS_PHONE?`<button class="main small" id="impc" style="justify-content:center;color:var(--good)">📇 From my contacts</button>`:''}</div>
       ${rows || '<div class="empty">No contacts here yet.<br>Tap New contact, or say a name and number below,<br>like "Mike 614 555 1234".</div>'}</div>` +
       addBox('Name and number');
     wireBack('#/');
     app.querySelectorAll('[data-ctab]').forEach(b=>b.onclick=()=>{ go(`#/contacts/${b.dataset.ctab}`, true); focusSel(`[data-ctab="${b.dataset.ctab}"]`); });
     app.querySelectorAll('[data-copen]').forEach(b=>b.onclick=()=>go(`#/contact/${b.dataset.copen}`));
     document.getElementById('newc').onclick=()=>go(`#/contact/new/${tab.id}`);
+    const imp=document.getElementById('impc'); if(imp) imp.onclick=()=>importContacts(tab.id);
     wireAdd(t=>{
       const c = parseContact(t);
       if (!c){ toast('Need a name <i>and</i> a number, like "Mike 614 555 1234".'); focusSel('#newi'); return; }
@@ -628,6 +629,61 @@
       save(); render(); focusSel('#newi');
     });
     if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
+  }
+
+  // ----- Bring people in from the phone's own Contacts app -----
+  // Uses the phone's contact picker when it has one; otherwise takes a shared contact card (.vcf file).
+  function addImported(list, cat){
+    let added=0, skipped=0;
+    list.forEach(p=>{
+      const name=(p.name||'').trim(), phone=(p.phone||'').trim(), email=(p.email||'').trim(), pos=(p.pos||'').trim();
+      if (!name || (!phone && !email)){ skipped++; return; }
+      const dup = live(data.contacts).some(c=>c.name.toLowerCase()===name.toLowerCase() && dialable(c.phone||'')===dialable(phone));
+      if (dup){ skipped++; return; }
+      data.contacts.push({id:uid(), name, phone, email, pos, cat, c:now(), u:now()}); added++;
+    });
+    if (added) save();
+    render();
+    toast(added ? `Added ${added} contact${added>1?'s':''}${skipped?` <span class="sub">(${skipped} skipped: already here or no number/email)</span>`:''}.`
+                : 'Nothing new to add. They\'re already here or had no number or email.');
+  }
+  function parseVcf(text){
+    const lines = text.replace(/\r\n?/g,'\n').replace(/\n[ \t]/g,'').split('\n');   // unfold wrapped lines
+    const out=[]; let cur=null;
+    const val = l => l.slice(l.indexOf(':')+1).replace(/\\n/gi,' ').replace(/\\([,;\\])/g,'$1').trim();
+    lines.forEach(l=>{
+      const key = l.split(':')[0].split(';')[0].replace(/^item\d+\./i,'').toUpperCase();
+      if (key==='BEGIN'){ cur={}; return; }
+      if (!cur) return;
+      if (key==='END'){ out.push(cur); cur=null; return; }
+      if (key==='FN') cur.name = val(l);
+      else if (key==='N' && !cur.name){ const p=val(l).split(';'); cur.name=[p[1],p[0]].filter(Boolean).join(' '); }
+      else if (key==='TEL' && !cur.phone) cur.phone = val(l);
+      else if (key==='EMAIL' && !cur.email) cur.email = val(l);
+      else if (key==='TITLE') cur.pos = val(l);
+      else if (key==='ORG' && !cur.pos) cur.pos = val(l).split(';')[0];
+    });
+    return out;
+  }
+  async function importContacts(cat){
+    if (navigator.contacts && navigator.contacts.select){
+      try {
+        const props = await navigator.contacts.getProperties().catch(()=>['name','tel','email']);
+        const res = await navigator.contacts.select(['name','tel','email'].filter(p=>props.includes(p)), {multiple:true});
+        if (!res || !res.length) return;
+        addImported(res.map(r=>({name:(r.name||[])[0], phone:(r.tel||[])[0], email:(r.email||[])[0]})), cat);
+        return;
+      } catch(e){ /* fall through to the file option */ }
+    }
+    const inp=document.createElement('input'); inp.type='file'; inp.accept='.vcf,text/vcard,text/x-vcard'; inp.multiple=true;
+    inp.onchange=async ()=>{
+      let people=[];
+      for (const f of inp.files){ try { people = people.concat(parseVcf(await f.text())); } catch(e){} }
+      if (!people.length){ toast("That didn't look like a contact card. In Contacts, open a person → Share Contact → Save to Files, then pick that file here."); return; }
+      addImported(people, cat);
+    };
+    toast('Pick a contact card file.<br><span class="sub">Make one in Contacts: open a person → Share Contact → Save to Files.</span>');
+    inp.click();
   }
 
   // One contact: call / text / email, plus edit and delete
