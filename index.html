@@ -51,6 +51,9 @@
   .menu .icon{margin-right:.5em}
   .note-body{white-space:pre-wrap;line-height:1.4;border:2px solid var(--line);border-radius:14px;padding:.6em .8em;margin-bottom:2vw}
   .small{font-size:.8em}
+  .gtabs{gap:1.5vw}
+  .gtabs button{font-size:.7em;padding:.35em .1em;white-space:nowrap}
+  .gtabs .cnt{margin-left:.15em;min-width:1.1em;padding:0 .2em}
   .piece{white-space:normal;line-height:1.4;padding:.35em .7em;margin-bottom:1vw;border-radius:12px;border:2px solid transparent}
   .notecard .preview{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;line-height:1.35;margin-top:.15em}
   .crossed, .crossed .preview{color:var(--dim);text-decoration:line-through}
@@ -237,7 +240,7 @@
   }
 
   // Re-draw after new data arrives without yanking the cursor around.
-  const FOCUS_ATTRS=['data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  const FOCUS_ATTRS=['data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
   function refresh(){
     const a=document.activeElement;
     if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
@@ -257,7 +260,7 @@
   let histOK = true;
   function route(){
     const h = stack[stack.length-1].replace(/^#\/?/, '').split('/');
-    return { a:h[0]||'', b:h[1]||'', c:h[2]||'' };
+    return { a:h[0]||'', b:h[1]||'', c:h[2]||'', d:h[3]||'' };
   }
   function go(hash, replace){
     armed = null; bgMenu = false;
@@ -581,6 +584,15 @@
     {id:'work', label:'💼 Work'},
     {id:'personal', label:'🏡 Personal'}
   ];
+  // Groups inside each contact tab. Add another by adding a line here (the last one catches everything else).
+  const GROUPS = {
+    work: [{id:'boss', label:'Bosses'}, {id:'team', label:'My Team'}, {id:'cust', label:'Customers'}, {id:'other', label:'Others'}],
+    personal: [{id:'fam', label:'Family'}, {id:'friend', label:'Friends'}, {id:'other', label:'Other'}]
+  };
+  const catOf = c => c.cat || 'personal';
+  const groupsFor = cat => GROUPS[cat] || [{id:'other', label:'Other'}];
+  const grpOf = c => groupsFor(catOf(c)).some(g=>g.id===c.grp) ? c.grp : 'other';   // older contacts land in Other(s)
+  const grpLabel = (cat, id) => (groupsFor(cat).find(g=>g.id===id) || groupsFor(cat).slice(-1)[0]).label;
   // "Mike Johnson 614 555 1234" -> name + number (works with dictation)
   function parseContact(text){
     const m = text.match(/^(.*?)[\s,:\-]*(\+?\(?\d[\d\s().\-]{5,}\d)\s*$/);
@@ -600,10 +612,12 @@
     clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.display='none', 6000);
   }
 
-  function renderContacts(catId){
+  function renderContacts(catId, grpId){
     const tab = CONTACT_TABS.find(t=>t.id===catId) || CONTACT_TABS[0];
     const all = live(data.contacts);
-    const list = all.filter(c=>(c.cat||'personal')===tab.id).sort((a,b)=>a.name.localeCompare(b.name));
+    const G = groupsFor(tab.id), inTab = all.filter(c=>catOf(c)===tab.id);
+    const grp = G.some(g=>g.id===grpId) ? grpId : ((G.find(g=>inTab.some(c=>grpOf(c)===g.id)) || G[0]).id);
+    const list = all.filter(c=>(c.cat||'personal')===tab.id && (!grp || grpOf(c)===grp)).sort((a,b)=>a.name.localeCompare(b.name));
     const rows = list.map(c=>`<div class="row">
       <button class="main block" data-copen="${c.id}">
         <span class="t">${esc(c.name)}${c.pos?` <span class="sub">· ${esc(c.pos)}</span>`:''}</span>
@@ -614,18 +628,23 @@
         const n=all.filter(c=>(c.cat||'personal')===t.id).length;
         return `<button role="tab" data-ctab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}<span class="cnt${n?'':' zero'}">${n}</span></button>`;
       }).join('')}</div>` +
-      `<div class="scroll"><div class="row"><button class="main small" id="newc" style="justify-content:center;color:var(--accent)">＋ New ${tab.id==='work'?'work ':''}contact</button>${IS_PHONE?`<button class="main small" id="impc" style="justify-content:center;color:var(--good)">📇 From my contacts</button>`:''}</div>
+      (grp ? `<div class="tabs gtabs" role="tablist">${G.map(g=>{
+        const n=inTab.filter(c=>grpOf(c)===g.id).length;
+        return `<button role="tab" data-gtab="${g.id}" aria-selected="${g.id===grp}">${g.label}<span class="cnt${n?'':' zero'}">${n}</span></button>`;
+      }).join('')}</div>` : '') +
+      `<div class="scroll"><div class="row"><button class="main small" id="newc" style="justify-content:center;color:var(--accent)">＋ New contact</button>${IS_PHONE?`<button class="main small" id="impc" style="justify-content:center;color:var(--good)">📇 From my contacts</button>`:''}</div>
       ${rows || '<div class="empty">No contacts here yet.<br>Tap New contact, or say a name and number below,<br>like "Mike 614 555 1234".</div>'}</div>` +
       addBox('Name and number');
     wireBack('#/');
     app.querySelectorAll('[data-ctab]').forEach(b=>b.onclick=()=>{ go(`#/contacts/${b.dataset.ctab}`, true); focusSel(`[data-ctab="${b.dataset.ctab}"]`); });
     app.querySelectorAll('[data-copen]').forEach(b=>b.onclick=()=>go(`#/contact/${b.dataset.copen}`));
-    document.getElementById('newc').onclick=()=>go(`#/contact/new/${tab.id}`);
-    const imp=document.getElementById('impc'); if(imp) imp.onclick=()=>importContacts(tab.id);
+    document.getElementById('newc').onclick=()=>go(`#/contact/new/${tab.id}${grp?'/'+grp:''}`);
+    const imp=document.getElementById('impc'); if(imp) imp.onclick=()=>importContacts(tab.id, grp);
+    app.querySelectorAll('[data-gtab]').forEach(b=>b.onclick=()=>{ go(`#/contacts/${tab.id}/${b.dataset.gtab}`, true); focusSel(`[data-gtab="${b.dataset.gtab}"]`); });
     wireAdd(t=>{
       const c = parseContact(t);
       if (!c){ toast('Need a name <i>and</i> a number, like "Mike 614 555 1234".'); focusSel('#newi'); return; }
-      data.contacts.push({id:uid(), name:c.name, phone:c.phone, cat:tab.id, c:now(), u:now()});
+      data.contacts.push(Object.assign({id:uid(), name:c.name, phone:c.phone, cat:tab.id, c:now(), u:now()}, grp?{grp}:{}));
       save(); render(); focusSel('#newi');
     });
     if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
@@ -633,14 +652,14 @@
 
   // ----- Bring people in from the phone's own Contacts app -----
   // Uses the phone's contact picker when it has one; otherwise takes a shared contact card (.vcf file).
-  function addImported(list, cat){
+  function addImported(list, cat, grp){
     let added=0, skipped=0;
     list.forEach(p=>{
       const name=(p.name||'').trim(), phone=(p.phone||'').trim(), email=(p.email||'').trim(), pos=(p.pos||'').trim();
       if (!name || (!phone && !email)){ skipped++; return; }
       const dup = live(data.contacts).some(c=>c.name.toLowerCase()===name.toLowerCase() && dialable(c.phone||'')===dialable(phone));
       if (dup){ skipped++; return; }
-      data.contacts.push({id:uid(), name, phone, email, pos, cat, c:now(), u:now()}); added++;
+      data.contacts.push(Object.assign({id:uid(), name, phone, email, pos, cat, c:now(), u:now()}, grp?{grp}:{})); added++;
     });
     if (added) save();
     render();
@@ -665,13 +684,13 @@
     });
     return out;
   }
-  async function importContacts(cat){
+  async function importContacts(cat, grp){
     if (navigator.contacts && navigator.contacts.select){
       try {
         const props = await navigator.contacts.getProperties().catch(()=>['name','tel','email']);
         const res = await navigator.contacts.select(['name','tel','email'].filter(p=>props.includes(p)), {multiple:true});
         if (!res || !res.length) return;
-        addImported(res.map(r=>({name:(r.name||[])[0], phone:(r.tel||[])[0], email:(r.email||[])[0]})), cat);
+        addImported(res.map(r=>({name:(r.name||[])[0], phone:(r.tel||[])[0], email:(r.email||[])[0]})), cat, grp);
         return;
       } catch(e){ /* fall through to the file option */ }
     }
@@ -680,7 +699,7 @@
       let people=[];
       for (const f of inp.files){ try { people = people.concat(parseVcf(await f.text())); } catch(e){} }
       if (!people.length){ toast("That didn't look like a contact card. In Contacts, open a person → Share Contact → Save to Files, then pick that file here."); return; }
-      addImported(people, cat);
+      addImported(people, cat, grp);
     };
     toast('Pick a contact card file.<br><span class="sub">Make one in Contacts: open a person → Share Contact → Save to Files.</span>');
     inp.click();
@@ -694,6 +713,7 @@
     app.innerHTML = header(esc(c.name), '#/contacts', c.pos?esc(c.pos):'') + `
       <div class="scroll">
         <div class="note-body" style="line-height:1.5;white-space:normal;display:grid;gap:.6em">
+          <div><span class="sub">Group</span><br>${grpLabel(catOf(c), grpOf(c))}</div>
           ${c.pos?`<div><span class="sub">Position</span><br>${esc(c.pos)}</div>`:''}
           <div><span class="sub">Phone</span><br>${ph?esc(prettyPhone(c.phone)):'<span class="sub">none</span>'}</div>
           <div><span class="sub">Email</span><br>${em?esc(em):'<span class="sub">none</span>'}</div>
@@ -718,10 +738,11 @@
     };
     if(!app.contains(document.activeElement)) focusFirst();
   }
-  function renderContactForm(id, cat){
+  function renderContactForm(id, cat, grpIn){
     const c = id ? live(data.contacts).find(x=>x.id===id) : null;
     if (id && !c) return go('#/contacts', true);
-    const v = c || {name:'', phone:'', pos:'', email:'', cat: cat||'work'};
+    const v = c || {name:'', phone:'', pos:'', email:'', cat: cat||'work', grp: grpIn||'other'};
+    let fgrp = grpOf(v);
     const fld = (fid, label, val, type, ph) => `<label class="sub" for="${fid}" style="display:block;margin:2vw 0 1vw .3em">${label}</label>
       <div class="add" style="margin:0"><input id="${fid}" type="${type}" value="${esc(val||'')}" placeholder="${ph}" autocomplete="off"></div>`;
     app.innerHTML = header(c?'Edit contact':'New contact', '#/contacts', CONTACT_TABS.find(t=>t.id===(v.cat||'personal')).label) + `
@@ -730,20 +751,24 @@
         ${fld('fphone','Phone number',v.phone,'tel','614 555 1234')}
         ${fld('fpos','Position',v.pos,'text','Foreman, plumber, office…')}
         ${fld('femail','Email',v.email,'email','mike@example.com')}
+        <label class="sub" style="display:block;margin:2vw 0 1vw .3em">Group</label>
+        <div class="tabs" id="fgrps" role="tablist">${groupsFor(catOf(v)).map(g=>`<button role="tab" data-fgrp="${g.id}" aria-selected="${g.id===fgrp}">${g.label}</button>`).join('')}</div>
         <div class="row" style="margin-top:4vw"><button class="main" id="savec" style="justify-content:center;color:var(--good)">✔ Save contact</button></div>
         <div class="row"><button class="main small" id="cancelc" style="justify-content:center">Cancel</button></div>
       </div>`;
     formOpen = true;
     wireBack('#/contacts');
     document.getElementById('cancelc').onclick=()=>{ formOpen=false; goBack('#/contacts'); };
+    app.querySelectorAll('[data-fgrp]').forEach(b=>b.onclick=()=>{ fgrp=b.dataset.fgrp; app.querySelectorAll('[data-fgrp]').forEach(x=>x.setAttribute('aria-selected', x===b)); });
     document.getElementById('savec').onclick=()=>{
       const g=k=>document.getElementById(k).value.trim();
       const name=g('fname').replace(/\b\w/g, x=>x.toUpperCase()), phone=g('fphone'), pos=g('fpos'), email=g('femail');
       if(!name){ toast('Give them a name first.'); focusSel('#fname'); return; }
       if(!phone && !email){ toast('Add a phone number or an email.'); focusSel('#fphone'); return; }
       formOpen=false;
-      if(c){ Object.assign(c,{name,phone,pos,email}); touch(c); save(); go(`#/contact/${c.id}`, true); }
-      else { const n={id:uid(),name,phone,pos,email,cat:v.cat,c:now(),u:now()}; data.contacts.push(n); save(); go(`#/contact/${n.id}`, true); }
+      const extra = {grp:fgrp};
+      if(c){ Object.assign(c,{name,phone,pos,email},extra); touch(c); save(); go(`#/contact/${c.id}`, true); }
+      else { const n=Object.assign({id:uid(),name,phone,pos,email,cat:v.cat,c:now(),u:now()},extra); data.contacts.push(n); save(); go(`#/contact/${n.id}`, true); }
     };
     if(!app.contains(document.activeElement)) focusSel('#fname');
   }
@@ -849,8 +874,8 @@
     else if (r.a==='job' && r.b) renderJob(r.b, r.c);
     else if (r.a==='notes') renderNotes(r.b);
     else if (r.a==='note' && r.b) renderNote(r.b);
-    else if (r.a==='contacts') renderContacts(r.b);
-    else if (r.a==='contact' && r.b==='new') renderContactForm(null, r.c);
+    else if (r.a==='contacts') renderContacts(r.b, r.c);
+    else if (r.a==='contact' && r.b==='new') renderContactForm(null, r.c, r.d);
     else if (r.a==='contact' && r.b && r.c==='edit') renderContactForm(r.b);
     else if (r.a==='contact' && r.b) renderContact(r.b);
     else if (sec && sec.kind==='priority') renderPriority(sec, r.b);
