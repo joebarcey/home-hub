@@ -59,6 +59,8 @@
   .piece{display:block;width:100%;text-align:left;white-space:normal;line-height:1.4;padding:.35em .7em;margin-bottom:1vw;border-radius:12px;border:2px solid transparent}
   .nd{color:#ffb35c;font-weight:600} .nsep{color:var(--dim)} .ns{color:#7bbcff}
   .crossed .nd, .crossed .ns{color:inherit}
+  .hdrow .x{min-width:1.7em;padding:.45em .3em}
+  .hdrow .t{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.2}
   .editbox{margin:0 0 2vw}
   .ediin{flex:1;min-width:0;background:#111;border:2px solid var(--accent);border-radius:14px;padding:.45em .7em}
   body.has-bg .ediin{background-color:rgba(0,0,0,.55)}
@@ -339,7 +341,7 @@
   }
   function wireChecklist(getArr){
     app.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ editItem=b.dataset.edit; armed=null; render(); });
-    if (editItem && editItem!=='pname'){
+    if (editItem && editItem!=='pname' && editItem!=='jname'){
       const it=getArr().find(i=>i.id===editItem);
       if (it) wireEdit(v=>{ it.text=v; touch(it); }, `[data-toggle="${it.id}"]`);
     }
@@ -441,10 +443,11 @@
           <span class="sub" style="flex:0 0 auto">took ${Math.max(1, daysBetween(addedAt(it), it.doneAt||it.u||now()) )}d <span style="color:${PRI_COLOR[priOf(it)]}">P${priOf(it)}</span></span>
         </button>
         <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
-      </div>` : `
-      <div class="row">
+      </div>` : editItem===it.id ? editRow(it.text, 'Job name') : `
+      <div class="row hdrow">
         <button class="main block" data-job="${it.id}" aria-label="Open ${esc(it.text)}"><span class="t">${esc(it.text)}</span><div class="sub" style="display:flex;gap:.6em">${ageBadge(it)}${jobInfo(it)}</div></button>
         <button class="x" data-toggle="${it.id}" aria-label="Mark done" style="color:var(--good)">○</button>
+        <button class="x" data-edit="${it.id}" aria-label="Change">✏️</button>
         <button class="x" data-pri="${it.id}" aria-label="Change priority" style="color:${PRI_COLOR[p]}">P${p}</button>
         <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
       </div>${pickerRow(it)}`).join('');
@@ -504,11 +507,14 @@
       <div class="scroll">
         ${tab.id==='materials' && live(j.materials).length ? `<div class="sub" style="margin:0 0 2vw .3em">${matLeft?`Check off what you've got. ${matLeft} still to get.`:'Got everything. No excuses now.'}</div>`:''}
         ${checklistRows(j[tab.id], true) || `<div class="empty">${tab.id==='tasks'?'No tasks yet.<br>Break it into steps below.':'No materials yet.<br>Add what you need to buy or grab.'}</div>`}
+        ${editItem==='jname' ? editRow(j.text, 'Job name') : `<div class="row"><button class="main small" id="renj" style="justify-content:center">✏️ Rename job</button></div>`}
         <div class="row"><button class="main small" id="jobdone" style="justify-content:center;color:var(--good)">${j.done?'↩ Put job back on the list':'✔ Mark whole job done'}</button></div>
       </div>` + addBox(tab.ph);
     wireBack('#/honeydo');
     app.querySelectorAll('[data-jtab]').forEach(b=>b.onclick=()=>{ go(`#/job/${j.id}/${b.dataset.jtab}`, true); focusSel(`[data-jtab="${b.dataset.jtab}"]`); });
     wireChecklist(()=>j[tab.id]);
+    const rj=document.getElementById('renj'); if(rj) rj.onclick=()=>{ editItem='jname'; armed=null; render(); };
+    if (editItem==='jname') wireEdit(v=>{ j.text=v; touch(j); }, '#renj');
     document.getElementById('jobdone').onclick=()=>{
       j.done=!j.done; if (j.done) j.doneAt=now(); else delete j.doneAt;
       touch(j); save(); goBack('#/honeydo');
