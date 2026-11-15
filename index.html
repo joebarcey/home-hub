@@ -51,6 +51,7 @@
   .menu .icon{margin-right:.5em}
   .note-body{white-space:pre-wrap;line-height:1.4;border:2px solid var(--line);border-radius:14px;padding:.6em .8em;margin-bottom:2vw}
   .small{font-size:.8em}
+  button[aria-pressed="true"]{border-color:var(--good)}
   .gtabs{gap:1.5vw}
   .gtabs button{font-size:.7em;padding:.35em .1em;white-space:nowrap}
   .gtabs .cnt{margin-left:.15em;min-width:1.1em;padding:0 .2em}
@@ -63,12 +64,14 @@
   #toast{position:fixed;left:4vw;right:4vw;bottom:3vw;background:#111;border:2px solid var(--good);border-radius:14px;padding:.5em .8em;font-size:.8em;line-height:1.35;display:none}
   /* Phone-only background pictures. A dark veil keeps the text readable. */
   #bg{position:fixed;inset:0;z-index:-1;background-size:cover;background-position:center;display:none}
-  #bg::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.5)}
+  #bg::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.18)}
   body.has-bg{background:transparent}
   body.has-bg #bg{display:block}
   body.has-bg .row .main, body.has-bg a.main, body.has-bg .tabs button, body.has-bg .add input, body.has-bg .x,
-  body.has-bg .note-body, body.has-bg .back, body.has-bg .add button{background-color:rgba(0,0,0,.6);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-  body.has-bg .tabs button[aria-selected="true"]{background-color:rgba(40,40,40,.85)}
+  body.has-bg .note-body, body.has-bg .back, body.has-bg .add button{background-color:rgba(0,0,0,.28);-webkit-backdrop-filter:blur(1.5px);backdrop-filter:blur(1.5px);border-color:rgba(255,255,255,.28)}
+  body.has-bg .tabs button[aria-selected="true"]{background-color:rgba(0,0,0,.5);border-color:var(--fg)}
+  body.has-bg #app{text-shadow:0 1px 2px #000,0 0 6px rgba(0,0,0,.9)}   /* keeps words readable on a busy picture */
+  body.has-bg .piece{background-color:rgba(0,0,0,.28)}
   .bgbtn{flex:0 0 auto;padding:.25em .5em;font-size:.8em;line-height:1}
   .bgmenu{display:flex;gap:2vw;margin:-1vw 0 2vw}
   .bgmenu button{flex:1;text-align:center;font-size:.8em}
@@ -240,7 +243,7 @@
   }
 
   // Re-draw after new data arrives without yanking the cursor around.
-  const FOCUS_ATTRS=['data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  const FOCUS_ATTRS=['data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
   function refresh(){
     const a=document.activeElement;
     if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
@@ -612,7 +615,52 @@
     clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.display='none', 6000);
   }
 
+  // ----- Group text: pick several people, then open one Messages thread to all of them -----
+  const picked = new Set();
+  let groupMsg = '';
+  const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+  function groupSmsLink(nums, body){
+    const b = body ? encodeURIComponent(body) : '';
+    return IS_IOS ? `sms://open?addresses=${nums.join(',')}${b?'&body='+b:''}` : `sms:${nums.join(',')}${b?'?body='+b:''}`;
+  }
+  function renderGroupText(){
+    const all = live(data.contacts).filter(c=>dialable(c.phone||''));
+    [...picked].forEach(id=>{ if(!all.some(c=>c.id===id)) picked.delete(id); });
+    const sections = CONTACT_TABS.flatMap(t=>groupsFor(t.id).map(g=>({t, g, people: all.filter(c=>catOf(c)===t.id && grpOf(c)===g.id).sort((a,b)=>a.name.localeCompare(b.name))}))).filter(x=>x.people.length);
+    const body = sections.map(x=>{
+      const key=x.t.id+'.'+x.g.id, allOn=x.people.every(c=>picked.has(c.id));
+      return `<div class="row" style="margin-top:2vw"><button class="main small" data-gall="${key}" style="justify-content:space-between">
+          <span>${x.t.label.split(' ')[0]} ${x.g.label}</span><span style="color:var(--accent)">${allOn?'Unselect all':'Select all'}</span></button></div>` +
+        x.people.map(c=>`<div class="row"><button class="main" data-pick="${c.id}" aria-pressed="${picked.has(c.id)}">
+          <span class="t">${esc(c.name)}${c.pos?` <span class="sub">· ${esc(c.pos)}</span>`:''}</span><span class="check">${picked.has(c.id)?'✔':'○'}</span></button></div>`).join('');
+    }).join('');
+    const nums = all.filter(c=>picked.has(c.id)).map(c=>dialable(c.phone));
+    app.innerHTML = header('💬 Group text', '#/contacts', picked.size?`${picked.size} picked`:'') +
+      `<div class="tabs" role="tablist">${CONTACT_TABS.map(t=>`<button role="tab" data-ctab="${t.id}" aria-selected="false">${t.label}</button>`).join('')}<button role="tab" data-ctab="text" aria-selected="true">💬 Group</button></div>
+      <div class="scroll">
+        ${body || '<div class="empty">No contacts with phone numbers yet.</div>'}
+        ${picked.size?`<div class="row" style="margin-top:3vw"><button class="main small" id="clearpick" style="justify-content:center">Clear picks</button></div>`:''}
+      </div>
+      ${IS_PHONE?`<div class="add"><input id="gmsg" type="text" placeholder="Message (optional)" value="${esc(groupMsg)}"></div>`:''}
+      <div class="add">${nums.length
+        ? `<a class="main" id="sendg" href="${groupSmsLink(nums, groupMsg)}" target="_top" style="flex:1;justify-content:center;color:var(--good);display:flex">💬 Text ${nums.length} ${nums.length===1?'person':'people'}</a>`
+        : `<button class="main" style="flex:1;text-align:center;color:var(--dim)" disabled>Pick people to text</button>`}</div>`;
+    wireBack('#/contacts');
+    app.querySelectorAll('[data-ctab]').forEach(b=>b.onclick=()=>{ go(`#/contacts/${b.dataset.ctab}`, true); focusSel(`[data-ctab="${b.dataset.ctab}"]`); });
+    app.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{ const id=b.dataset.pick; picked.has(id)?picked.delete(id):picked.add(id); render(); focusSel(`[data-pick="${id}"]`); });
+    app.querySelectorAll('[data-gall]').forEach(b=>b.onclick=()=>{
+      const x=sections.find(s=>s.t.id+'.'+s.g.id===b.dataset.gall), on=x.people.every(c=>picked.has(c.id));
+      x.people.forEach(c=>on?picked.delete(c.id):picked.add(c.id)); render(); focusSel(`[data-gall="${b.dataset.gall}"]`);
+    });
+    const cl=document.getElementById('clearpick'); if(cl) cl.onclick=()=>{ picked.clear(); render(); focusFirst(); };
+    const gm=document.getElementById('gmsg');
+    if(gm) gm.addEventListener('input', ()=>{ groupMsg=gm.value; const a=document.getElementById('sendg'); if(a) a.href=groupSmsLink(nums, groupMsg); });
+    const sg=document.getElementById('sendg');
+    if(sg) sg.addEventListener('click', ()=>toast(IS_PHONE?'Opening Messages…':'Group texts open on the phone.<br><span class="sub">On the glasses, say "Hey Meta, send a message to…" one person at a time.</span>'));
+    if(!app.contains(document.activeElement)) focusSel('[data-ctab="text"]');
+  }
   function renderContacts(catId, grpId){
+    if (catId==='text') return renderGroupText();
     const tab = CONTACT_TABS.find(t=>t.id===catId) || CONTACT_TABS[0];
     const all = live(data.contacts);
     const G = groupsFor(tab.id), inTab = all.filter(c=>catOf(c)===tab.id);
@@ -627,7 +675,7 @@
       `<div class="tabs" role="tablist">${CONTACT_TABS.map(t=>{
         const n=all.filter(c=>(c.cat||'personal')===t.id).length;
         return `<button role="tab" data-ctab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}<span class="cnt${n?'':' zero'}">${n}</span></button>`;
-      }).join('')}</div>` +
+      }).join('')}<button role="tab" data-ctab="text" aria-selected="false">💬 Group</button></div>` +
       (grp ? `<div class="tabs gtabs" role="tablist">${G.map(g=>{
         const n=inTab.filter(c=>grpOf(c)===g.id).length;
         return `<button role="tab" data-gtab="${g.id}" aria-selected="${g.id===grp}">${g.label}<span class="cnt${n?'':' zero'}">${n}</span></button>`;
