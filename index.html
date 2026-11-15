@@ -26,7 +26,7 @@
   .scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:4px}
   button,input,textarea{font:inherit;color:inherit}
   button{background:transparent;border:2px solid var(--line);border-radius:14px;padding:.45em .7em;text-align:left;cursor:pointer}
-  button:focus,input:focus,.note-body:focus{outline:4px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
+  button:focus,input:focus,.note-body:focus,.piece:focus{outline:4px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
   .row{display:flex;gap:2vw;margin-bottom:2vw;align-items:stretch}
   .row .main{flex:1;display:flex;justify-content:space-between;align-items:center;gap:2vw;min-width:0}
   .main.block{display:block}
@@ -51,6 +51,9 @@
   .menu .icon{margin-right:.5em}
   .note-body{white-space:pre-wrap;line-height:1.4;border:2px solid var(--line);border-radius:14px;padding:.6em .8em;margin-bottom:2vw}
   .small{font-size:.8em}
+  .piece{white-space:normal;line-height:1.4;padding:.35em .7em;margin-bottom:1vw;border-radius:12px;border:2px solid transparent}
+  .notecard .preview{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;line-height:1.35;margin-top:.15em}
+  .crossed, .crossed .preview{color:var(--dim);text-decoration:line-through}
   a.main{text-decoration:none;color:inherit;border:2px solid var(--line);border-radius:14px;padding:.45em .7em}
   a.main:focus{outline:4px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
   .phone{color:var(--good)}
@@ -234,10 +237,11 @@
   }
 
   // Re-draw after new data arrives without yanking the cursor around.
-  const FOCUS_ATTRS=['data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  const FOCUS_ATTRS=['data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
   function refresh(){
     const a=document.activeElement;
     if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
+    if (formOpen) return;   // keep a half-filled contact form as it is
     let sel=null;
     if (a && app.contains(a)){
       if (a.id) sel='#'+a.id;
@@ -548,21 +552,26 @@
   function fmtDate(ts){ try { return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric'}); } catch(e){ return ''; } }
   const noteCat = n => n.cat || 'personal'; // older notes land in Personal
 
+  let showDoneNotes = false;
   function renderNotes(catId){
     const tab = NOTE_TABS.find(t=>t.id===catId) || NOTE_TABS[0];
     const all = live(data.notes);
-    const notes=all.filter(n=>noteCat(n)===tab.id).sort((a,b)=>b.created-a.created);
-    const rows=notes.map(n=>`<div class="row"><button class="main" data-note="${n.id}">
-      <span class="t">${esc(n.text.split('\n')[0])}</span><span class="sub">${fmtDate(n.created)}</span></button></div>`).join('');
+    const inTab=all.filter(n=>noteCat(n)===tab.id).sort((a,b)=>b.created-a.created);
+    const notes=inTab.filter(n=>!n.done), doneNotes=inTab.filter(n=>n.done);
+    const block = n => `<div class="row"><button class="main block notecard${n.done?' crossed':''}" data-note="${n.id}">
+      <span class="sub">${fmtDate(n.created)}${n.done?' · ✔ done':''}</span>
+      <span class="preview">${esc(n.text.replace(/^✓ /gm,''))}</span></button></div>`;
+    const rows = notes.map(block).join('') + (doneNotes.length ? `<div class="row"><button class="main small" id="showdone" style="justify-content:center;color:var(--good)">${showDoneNotes?'Hide':'Show'} ${doneNotes.length} done</button></div>` + (showDoneNotes?doneNotes.map(block).join(''):'') : '');
     app.innerHTML = header('📝 Notes', '#/') +
       `<div class="tabs" role="tablist">${NOTE_TABS.map(t=>{
         const c=all.filter(n=>noteCat(n)===t.id).length;
         return `<button role="tab" data-ntab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`;
       }).join('')}</div>` +
-      `<div class="scroll">${rows || '<div class="empty">No notes here yet.<br>Brilliant thoughts go below.</div>'}</div>` + addBox(tab.ph);
+      `<div class="scroll">${notes.length||doneNotes.length ? rows : '<div class="empty">No notes here yet.<br>Brilliant thoughts go below.</div>'}</div>` + addBox(tab.ph);
     wireBack('#/');
     app.querySelectorAll('[data-ntab]').forEach(b=>b.onclick=()=>{ go(`#/notes/${b.dataset.ntab}`, true); focusSel(`[data-ntab="${b.dataset.ntab}"]`); });
     app.querySelectorAll('[data-note]').forEach(b=>b.onclick=()=>go(`#/note/${b.dataset.note}`));
+    const sd=document.getElementById('showdone'); if(sd) sd.onclick=()=>{ showDoneNotes=!showDoneNotes; render(); focusSel('#showdone'); };
     wireAdd(t=>{ data.notes.push({id:uid(),text:t,cat:tab.id,created:now(),u:now()}); save(); render(); focusSel('#newi'); });
     if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
   }
@@ -596,28 +605,22 @@
     const all = live(data.contacts);
     const list = all.filter(c=>(c.cat||'personal')===tab.id).sort((a,b)=>a.name.localeCompare(b.name));
     const rows = list.map(c=>`<div class="row">
-      <a class="main block" href="tel:${esc(dialable(c.phone))}" target="_top" data-call="${c.id}">
-        <span class="t">${esc(c.name)}</span><span class="phone small">📞 ${esc(prettyPhone(c.phone))}</span></a>
-      <button class="x ${armed===c.id?'danger':''}" data-del="${c.id}" aria-label="Delete">${armed===c.id?'Sure?':'✕'}</button>
+      <button class="main block" data-copen="${c.id}">
+        <span class="t">${esc(c.name)}${c.pos?` <span class="sub">· ${esc(c.pos)}</span>`:''}</span>
+        <span class="phone small">📞 ${esc(prettyPhone(c.phone||''))}</span></button>
     </div>`).join('');
     app.innerHTML = header('📞 Contacts', '#/') +
       `<div class="tabs" role="tablist">${CONTACT_TABS.map(t=>{
         const n=all.filter(c=>(c.cat||'personal')===t.id).length;
         return `<button role="tab" data-ctab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}<span class="cnt${n?'':' zero'}">${n}</span></button>`;
       }).join('')}</div>` +
-      `<div class="scroll">${rows || '<div class="empty">No contacts here yet.<br>Say a name and number below,<br>like "Mike 614 555 1234".</div>'}</div>` +
+      `<div class="scroll"><div class="row"><button class="main small" id="newc" style="justify-content:center;color:var(--accent)">＋ New ${tab.id==='work'?'work ':''}contact</button></div>
+      ${rows || '<div class="empty">No contacts here yet.<br>Tap New contact, or say a name and number below,<br>like "Mike 614 555 1234".</div>'}</div>` +
       addBox('Name and number');
     wireBack('#/');
     app.querySelectorAll('[data-ctab]').forEach(b=>b.onclick=()=>{ go(`#/contacts/${b.dataset.ctab}`, true); focusSel(`[data-ctab="${b.dataset.ctab}"]`); });
-    app.querySelectorAll('[data-call]').forEach(a=>a.addEventListener('click', ()=>{
-      const c=all.find(x=>x.id===a.dataset.call);
-      toast(`Calling ${esc(c.name)}…<br><span class="sub">Nothing happening on the glasses? Say "Hey Meta, call ${esc(c.name)}."</span>`);
-    }));
-    app.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
-      const id=b.dataset.del;
-      if(armed===id){ remove(data.contacts.find(c=>c.id===id)); armed=null; save(); render(); focusFirst(); }
-      else { armed=id; render(); focusSel(`[data-del="${id}"]`); }
-    });
+    app.querySelectorAll('[data-copen]').forEach(b=>b.onclick=()=>go(`#/contact/${b.dataset.copen}`));
+    document.getElementById('newc').onclick=()=>go(`#/contact/new/${tab.id}`);
     wireAdd(t=>{
       const c = parseContact(t);
       if (!c){ toast('Need a name <i>and</i> a number, like "Mike 614 555 1234".'); focusSel('#newi'); return; }
@@ -627,19 +630,99 @@
     if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
   }
 
+  // One contact: call / text / email, plus edit and delete
+  let formOpen = false;   // a contact form is on screen; don't redraw it under the user
+  function renderContact(id){
+    const c=live(data.contacts).find(x=>x.id===id); if(!c) return go('#/contacts', true);
+    const ph=dialable(c.phone||''), em=(c.email||'').trim();
+    app.innerHTML = header(esc(c.name), '#/contacts', c.pos?esc(c.pos):'') + `
+      <div class="scroll">
+        <div class="note-body" style="line-height:1.5;white-space:normal;display:grid;gap:.6em">
+          ${c.pos?`<div><span class="sub">Position</span><br>${esc(c.pos)}</div>`:''}
+          <div><span class="sub">Phone</span><br>${ph?esc(prettyPhone(c.phone)):'<span class="sub">none</span>'}</div>
+          <div><span class="sub">Email</span><br>${em?esc(em):'<span class="sub">none</span>'}</div>
+        </div>
+        ${ph?`<div class="row"><a class="main" href="tel:${esc(ph)}" target="_top" data-act="call" style="justify-content:center;color:var(--good)">📞 Call</a></div>
+        <div class="row"><a class="main" href="sms:${esc(ph)}" target="_top" data-act="text" style="justify-content:center;color:var(--accent)">💬 Text message</a></div>`:''}
+        ${em?`<div class="row"><a class="main" href="mailto:${esc(em)}" target="_top" data-act="email" style="justify-content:center;color:#ffe66b">✉️ Email</a></div>`:''}
+        <div class="row"><button class="main" id="editc" style="justify-content:center">✏️ Edit contact</button></div>
+        <div class="row"><button class="main small ${armed===c.id?'danger':''}" id="delc" style="justify-content:center">${armed===c.id?'Press again to delete':'🗑 Delete contact'}</button></div>
+      </div>`;
+    wireBack('#/contacts');
+    app.querySelectorAll('[data-act]').forEach(a=>a.addEventListener('click', ()=>{
+      const k=a.dataset.act;
+      toast(k==='call'?`Calling ${esc(c.name)}…<br><span class="sub">Nothing happening on the glasses? Say "Hey Meta, call ${esc(c.name)}."</span>`
+        : k==='text'?`Opening Messages…<br><span class="sub">On the glasses, say "Hey Meta, send a message to ${esc(c.name)}."</span>`
+        : `Opening Mail…<br><span class="sub">Email works from the phone.</span>`);
+    }));
+    document.getElementById('editc').onclick=()=>go(`#/contact/${c.id}/edit`, true);
+    document.getElementById('delc').onclick=()=>{
+      if(armed===c.id){ remove(c); armed=null; save(); goBack('#/contacts'); }
+      else { armed=c.id; render(); focusSel('#delc'); }
+    };
+    if(!app.contains(document.activeElement)) focusFirst();
+  }
+  function renderContactForm(id, cat){
+    const c = id ? live(data.contacts).find(x=>x.id===id) : null;
+    if (id && !c) return go('#/contacts', true);
+    const v = c || {name:'', phone:'', pos:'', email:'', cat: cat||'work'};
+    const fld = (fid, label, val, type, ph) => `<label class="sub" for="${fid}" style="display:block;margin:2vw 0 1vw .3em">${label}</label>
+      <div class="add" style="margin:0"><input id="${fid}" type="${type}" value="${esc(val||'')}" placeholder="${ph}" autocomplete="off"></div>`;
+    app.innerHTML = header(c?'Edit contact':'New contact', '#/contacts', CONTACT_TABS.find(t=>t.id===(v.cat||'personal')).label) + `
+      <div class="scroll">
+        ${fld('fname','Name',v.name,'text','Mike Johnson')}
+        ${fld('fphone','Phone number',v.phone,'tel','614 555 1234')}
+        ${fld('fpos','Position',v.pos,'text','Foreman, plumber, office…')}
+        ${fld('femail','Email',v.email,'email','mike@example.com')}
+        <div class="row" style="margin-top:4vw"><button class="main" id="savec" style="justify-content:center;color:var(--good)">✔ Save contact</button></div>
+        <div class="row"><button class="main small" id="cancelc" style="justify-content:center">Cancel</button></div>
+      </div>`;
+    formOpen = true;
+    wireBack('#/contacts');
+    document.getElementById('cancelc').onclick=()=>{ formOpen=false; goBack('#/contacts'); };
+    document.getElementById('savec').onclick=()=>{
+      const g=k=>document.getElementById(k).value.trim();
+      const name=g('fname').replace(/\b\w/g, x=>x.toUpperCase()), phone=g('fphone'), pos=g('fpos'), email=g('femail');
+      if(!name){ toast('Give them a name first.'); focusSel('#fname'); return; }
+      if(!phone && !email){ toast('Add a phone number or an email.'); focusSel('#fphone'); return; }
+      formOpen=false;
+      if(c){ Object.assign(c,{name,phone,pos,email}); touch(c); save(); go(`#/contact/${c.id}`, true); }
+      else { const n={id:uid(),name,phone,pos,email,cat:v.cat,c:now(),u:now()}; data.contacts.push(n); save(); go(`#/contact/${n.id}`, true); }
+    };
+    if(!app.contains(document.activeElement)) focusSel('#fname');
+  }
+
   function renderNote(id){
     const n=live(data.notes).find(x=>x.id===id); if(!n) return go('#/notes', true);
     const cur=NOTE_TABS.find(t=>t.id===noteCat(n)) || NOTE_TABS[0];
     const others=NOTE_TABS.filter(t=>t.id!==cur.id);
     const listHash='#/notes/'+cur.id;
-    app.innerHTML = header(cur.label+' note', listHash, fmtDate(n.created)) + `
+    // The full note, broken into pieces small enough that swiping on the glasses walks through all of it
+    const pieces = [];
+    n.text.split('\n').forEach(ln=>{
+      const txt = ln.replace(/^✓ /,''); if (!txt.trim()) return;
+      if (txt.length <= 140){ pieces.push(txt); return; }
+      (txt.match(/[^.!?]+[.!?]*\s*/g) || [txt]).reduce((a,sen)=>{
+        if (a.length && (a[a.length-1]+sen).length <= 140) a[a.length-1]+=sen; else a.push(sen); return a; }, []).forEach(p=>pieces.push(p.trim()));
+    });
+    app.innerHTML = header(cur.label+' note', listHash, fmtDate(n.created)+(n.done?' · ✔ done':'')) + `
       <div class="scroll">
-        <div class="note-body" tabindex="0">${esc(n.text)}</div>
-        ${others.map(t=>`<div class="row"><button class="main small" data-move="${t.id}" style="justify-content:center">Move to ${t.label}</button></div>`).join('')}
-        <div class="row"><button class="main small ${armed===n.id?'danger':''}" id="deln" style="justify-content:center">${armed===n.id?'Press again to delete':'🗑 Delete note'}</button></div>
+        <div class="row">
+          <button class="main" id="donen" style="justify-content:center;color:var(--good)">${n.done?'↩ Not done':'✔ Done'}</button>
+          <button class="main" id="addn" style="justify-content:center;color:var(--accent)">＋ Add to</button>
+          <button class="main ${armed===n.id?'danger':''}" id="deln" style="justify-content:center">${armed===n.id?'Sure?':'🗑 Delete'}</button>
+        </div>
+        ${pieces.map((p,i)=>`<div class="piece${n.done?' crossed':''}" tabindex="0" data-lk="${i}">${esc(p)}</div>`).join('') || '<div class="empty">This note is empty.<br>Tap Add to.</div>'}
+        ${others.map(t=>`<div class="row" style="margin-top:2vw"><button class="main small" data-move="${t.id}" style="justify-content:center">Move to ${t.label}</button></div>`).join('')}
       </div>` + addBox('Add to this note');
     wireBack(listHash);
-    app.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>{ n.cat=b.dataset.move; touch(n); save(); render(); focusSel('.note-body'); });
+    app.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>{ n.cat=b.dataset.move; touch(n); save(); render(); focusSel('[data-move]'); });
+    document.getElementById('donen').onclick=()=>{
+      n.done=!n.done; touch(n); save();
+      if (n.done){ toast('Note marked done. It\'s tucked under <b>Show done</b> on the list.'); goBack(listHash); }
+      else { render(); focusSel('#donen'); }
+    };
+    document.getElementById('addn').onclick=()=>{ const i=document.getElementById('newi'); i.focus(); i.click(); };
     document.getElementById('deln').onclick=()=>{
       if(armed===n.id){ remove(n); armed=null; save(); goBack(listHash); }
       else { armed=n.id; render(); focusSel('#deln'); }
@@ -652,7 +735,7 @@
   const IS_PHONE = (()=>{ try { return innerHeight > innerWidth*1.2 && matchMedia('(pointer: coarse)').matches; } catch(e){ return false; } })();
   const BG_KEY = 'mrbd-home-hub-bg-';
   let bgMenu = false;
-  function pageKey(){ const a = route().a; return a==='' ? 'home' : a==='p' ? 'projects' : a==='note' ? 'notes' : a==='job' ? 'honeydo' : a; }
+  function pageKey(){ const a = route().a; return a==='' ? 'home' : a==='p' ? 'projects' : a==='note' ? 'notes' : a==='job' ? 'honeydo' : a==='contact' ? 'contacts' : a; }
   function getBg(k){ try { return localStorage.getItem(BG_KEY+k) || ''; } catch(e){ return ''; } }
   function applyBg(){
     const url = IS_PHONE ? getBg(pageKey()) : '';
@@ -701,6 +784,7 @@
     renderPage(); applyBg(); addBgButton();
   }
   function renderPage(){
+    formOpen=false;
     const r=route();
     const sec=SECTIONS.find(s=>s.id===r.a);
     if (r.a==='p' && r.b) renderProject(r.b, r.c);
@@ -709,6 +793,9 @@
     else if (r.a==='notes') renderNotes(r.b);
     else if (r.a==='note' && r.b) renderNote(r.b);
     else if (r.a==='contacts') renderContacts(r.b);
+    else if (r.a==='contact' && r.b==='new') renderContactForm(null, r.c);
+    else if (r.a==='contact' && r.b && r.c==='edit') renderContactForm(r.b);
+    else if (r.a==='contact' && r.b) renderContact(r.b);
     else if (sec && sec.kind==='priority') renderPriority(sec, r.b);
     else if (sec && sec.kind==='list') renderList(sec);
     else renderHome();
