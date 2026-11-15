@@ -79,6 +79,7 @@
   .main.opened{border-color:var(--accent)}
   .rowacts{margin:-1vw 0 2.5vw 1em}
   .rowacts .main{font-size:.8em;padding:.35em .3em}
+  .rowacts .main{white-space:nowrap;flex:1 1 auto} .rowacts [data-edit], .rowacts [data-del]{flex:0 1 2.6em}
   .ovhead{justify-content:space-between}
   #ovw{padding:.45em .5em}
   .editbox{margin:0 0 2vw}
@@ -500,7 +501,7 @@
     });
     app.querySelectorAll('[data-setpri]').forEach(b=>b.onclick=()=>{
       const it=arr.find(i=>i.id===priOpen); const n=+b.dataset.setpri;
-      priOpen=null;
+      priOpen=null; openRow=null;
       if (it && n!==priOf(it)){ it.pri=n; touch(it); save(); }
       render(); focusFirst();
     });
@@ -540,7 +541,15 @@
           <span class="sub" style="flex:0 0 auto">took ${Math.max(1, daysBetween(addedAt(it), it.doneAt||it.u||now()) )}d <span style="color:${PRI_COLOR[priOf(it)]}">P${priOf(it)}</span></span>
         </button>
         <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
-      </div>` : editItem===it.id ? editRow(it.text, 'Job name') : `
+      </div>` : editItem===it.id ? editRow(it.text, 'Job name') : LIGHT ? `
+      <div class="row hdrow">
+        <button class="main block${openRow===it.id?' opened':''}" data-rowopen="${it.id}" aria-expanded="${openRow===it.id}"><span class="t">${esc(it.text)}</span><div class="sub" style="display:flex;gap:.6em;align-items:center">${ageBadge(it)}${jobInfo(it)}<span style="margin-left:auto;color:${PRI_COLOR[p]}">P${p}</span></div></button>
+      </div>${openRow===it.id?`<div class="row rowacts">
+        <button class="main" data-job="${it.id}" style="justify-content:center">📂 Open</button>
+        <button class="main" data-toggle="${it.id}" style="justify-content:center;color:var(--good)">✔ Done</button>
+        <button class="main" data-edit="${it.id}" style="justify-content:center">✏️</button>
+        <button class="main" data-pri="${it.id}" style="justify-content:center;color:${PRI_COLOR[p]}">P${p}</button>
+        <button class="main ${armed===it.id?'danger':''}" data-del="${it.id}" style="justify-content:center">${armed===it.id?'Sure?':'🗑'}</button></div>`:''}${pickerRow(it)}` : `
       <div class="row hdrow">
         <button class="main block" data-job="${it.id}" aria-label="Open ${esc(it.text)}"><span class="t">${esc(it.text)}</span><div class="sub" style="display:flex;gap:.6em">${ageBadge(it)}${jobInfo(it)}</div></button>
         <button class="x" data-toggle="${it.id}" aria-label="Mark done" style="color:var(--good)">○</button>
@@ -725,6 +734,12 @@
     const pri = PRIS.includes(+priStr) ? +priStr : (PRIS.find(n=>all.some(p=>priOf(p)===n)) || 1);
     const rows = all.filter(p=>priOf(p)===pri).map(p=>{
       const g=progress(p);
+      if (LIGHT) return `<div class="row"><button class="main block${openRow===p.id?' opened':''}" data-rowopen="${p.id}" aria-expanded="${openRow===p.id}">
+        <span class="t">${esc(p.name)}</span>
+        <div class="sub" style="display:flex"><span>${g.n?`${g.d}/${g.n} steps done`:'No steps yet'}</span><span style="margin-left:auto;color:${PRI_COLOR[pri]}">P${pri}</span></div>
+        <div class="bar"><i style="width:${g.pct}%"></i></div></button></div>${openRow===p.id?`<div class="row rowacts">
+        <button class="main" data-open="${p.id}" style="justify-content:center">📂 Open</button>
+        <button class="main" data-pri="${p.id}" style="justify-content:center;color:${PRI_COLOR[pri]}">P${pri} priority</button></div>`:''}${pickerRow(p)}`;
       return `<div class="row"><button class="main block" data-open="${p.id}">
         <span class="t">${esc(p.name)}</span>
         <div class="sub">${g.n?`${g.d}/${g.n} steps done`:'No steps yet'}</div>
@@ -738,6 +753,7 @@
     app.querySelectorAll('[data-ptab]').forEach(b=>b.onclick=()=>{ priOpen=null; go(`#/projects/${b.dataset.ptab}`, true); focusSel(`[data-ptab="${b.dataset.ptab}"]`); });
     app.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{ priOpen=null; go(`#/p/${b.dataset.open}/goals`); });
     wirePriPicker(data.projects);
+    app.querySelectorAll('[data-rowopen]').forEach(b=>b.onclick=()=>{ const id=b.dataset.rowopen; openRow = openRow===id ? null : id; priOpen=null; render(); focusSel(`[data-rowopen="${id}"]`); });
     wireAdd(t=>{
       const r = parsePri(t, pri);
       const p={id:uid(),name:r.text,pri:r.pri,goals:[],materials:[],steps:[],c:now(),u:now()};
