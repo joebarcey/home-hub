@@ -7,17 +7,19 @@
 <link rel="icon" type="image/png" href="icon-home.png">
 <meta name="apple-mobile-web-app-title" content="Home Hub">
 <title>Home Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Merienda:wght@700;800;900&display=swap" rel="stylesheet">
 <meta name="description" content="One-stop hub: projects, honey-do list, notes and shopping on Meta Ray-Ban Display">
 <meta name="mrbd-web-app-capable" content="yes">
 <style>
   /* Additive display: black is see-through, bright colors are visible. */
   :root{
-    --bg:#000; --fg:#f2f2f2; --dim:#9a9a9a; --accent:#5fd3ff; --good:#7dff9a; --warn:#ffb35c; --line:#2a2a2a;
-    --fs: clamp(18px, 4.6vw, 30px);
+    --bg:#000; --fg:#f2f2f2; --dim:#9a9a9a; --accent:#5fd3ff; --good:#7dff9a; --warn:#ffb35c; --line:#2a2a2a; --yel:#ffe66b; --nd:#ffb35c; --ns:#7bbcff; --field:#111; --sel:#1a1a1a; --chip:#262626; --track:#222; --script:"Merienda";
+    --fs: clamp(22px, 6vw, 38px);   /* script letters run small, so everything is a size up */
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
-    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:var(--fs);overflow:hidden}
+    font-family:var(--script),system-ui,-apple-system,"Segoe UI",Roboto,cursive;font-weight:600;font-size:var(--fs);overflow:hidden}
   #app{height:100vh;display:flex;flex-direction:column;padding:3vw 4vw}
   header{display:flex;align-items:center;gap:2vw;flex:0 0 auto;margin-bottom:2vw}
   header h1{font-size:1.15em;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -36,13 +38,13 @@
   .check{flex:0 0 auto;color:var(--good)}
   .tabs{display:flex;gap:2vw;flex:0 0 auto;margin-bottom:2vw}
   .tabs button{flex:1;text-align:center;font-size:.8em;padding:.4em .2em}
-  .tabs button[aria-selected="true"]{border-color:var(--fg);background:#1a1a1a}
-  .cnt{display:inline-block;margin-left:.3em;min-width:1.3em;padding:0 .3em;border-radius:1em;background:#262626;color:var(--fg);font-size:.8em;line-height:1.4}
+  .tabs button[aria-selected="true"]{border-color:var(--fg);background:var(--sel)}
+  .cnt{display:inline-block;margin-left:.3em;min-width:1.3em;padding:0 .3em;border-radius:1em;background:var(--chip);color:var(--fg);font-size:.8em;line-height:1.4}
   .cnt.zero{color:var(--dim);background:transparent}
   .add{display:flex;gap:2vw;flex:0 0 auto;margin-top:1vw}
-  .add input{flex:1;min-width:0;background:#111;border:2px solid var(--line);border-radius:14px;padding:.45em .7em}
+  .add input{flex:1;min-width:0;background:var(--field);border:2px solid var(--line);border-radius:14px;padding:.45em .7em}
   .add button{color:var(--accent)}
-  .bar{height:.35em;background:#222;border-radius:1em;overflow:hidden;margin-top:.25em}
+  .bar{height:.35em;background:var(--track);border-radius:1em;overflow:hidden;margin-top:.25em}
   .bar i{display:block;height:100%;background:var(--good)}
   .empty{color:var(--dim);text-align:center;padding:2em 1em;line-height:1.4}
   .danger{color:var(--warn)}
@@ -57,21 +59,21 @@
   .gtabs button{font-size:.7em;padding:.35em .1em;white-space:nowrap}
   .gtabs .cnt{margin-left:.15em;min-width:1.1em;padding:0 .2em}
   .piece{display:block;width:100%;text-align:left;white-space:normal;line-height:1.4;padding:.35em .7em;margin-bottom:1vw;border-radius:12px;border:2px solid transparent}
-  .nd{color:#ffb35c;font-weight:600} .nsep{color:var(--dim)} .ns{color:#7bbcff}
+  .nd{color:var(--nd);font-weight:700} .nsep{color:var(--dim)} .ns{color:var(--ns)}
   .crossed .nd, .crossed .ns{color:inherit}
   .hdrow .x{min-width:1.7em;padding:.45em .3em}
   .hdrow .t{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.2}
   .editbox{margin:0 0 2vw}
-  .ediin{flex:1;min-width:0;background:#111;border:2px solid var(--accent);border-radius:14px;padding:.45em .7em}
+  .ediin{flex:1;min-width:0;background:var(--field);border:2px solid var(--accent);border-radius:14px;padding:.45em .7em}
   body.has-bg .ediin{background-color:rgba(0,0,0,.55)}
-  .editbox textarea{width:100%;background:#111;border:2px solid var(--accent);border-radius:14px;padding:.45em .7em;line-height:1.4;resize:vertical}
+  .editbox textarea{width:100%;background:var(--field);border:2px solid var(--accent);border-radius:14px;padding:.45em .7em;line-height:1.4;resize:vertical}
   body.has-bg .editbox textarea{background-color:rgba(0,0,0,.55)}
   .notecard .preview{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;line-height:1.35;margin-top:.15em}
   .crossed, .crossed .preview{color:var(--dim);text-decoration:line-through}
   a.main{text-decoration:none;color:inherit;border:2px solid var(--line);border-radius:14px;padding:.45em .7em}
   a.main:focus{outline:4px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
   .phone{color:var(--good)}
-  #toast{position:fixed;left:4vw;right:4vw;bottom:3vw;background:#111;border:2px solid var(--good);border-radius:14px;padding:.5em .8em;font-size:.8em;line-height:1.35;display:none}
+  #toast{position:fixed;left:4vw;right:4vw;bottom:3vw;background:var(--field);border:2px solid var(--good);border-radius:14px;padding:.5em .8em;font-size:.8em;line-height:1.35;display:none}
   /* Phone-only background pictures. A dark veil keeps the text readable. */
   #bg{position:fixed;inset:0;z-index:-1;background-size:cover;background-position:center;display:none}
   #bg::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.18)}
@@ -86,6 +88,28 @@
   .bgmenu{display:flex;gap:2vw;margin:-1vw 0 2vw}
   .bgmenu button{flex:1;text-align:center;font-size:.8em}
   #sync.ok{color:var(--good)} #sync.off{color:var(--warn)}
+  /* Merienda, everything bold */
+  body, body *{font-weight:800 !important}
+  /* script lettering: bold enough to read at a glance */
+  b, strong, header h1, .t{font-weight:700}
+  input, textarea{font-weight:600}
+  /* phone light look */
+  body.light{--bg:#efece6; --fg:#111; --dim:#4b5160; --accent:#1d5aa6; --good:#0b7a3c; --warn:#b85c00; --line:#b7bdc8;
+    --yel:#8a6d00; --nd:#b85c00; --ns:#1d5aa6; --field:#fff; --sel:#dfe3ea; --chip:#dfe3ea; --track:#d3d7de}
+  body.light button:focus, body.light input:focus, body.light .piece:focus{outline-color:#1d5aa6}
+  body.light.has-bg .row .main, body.light.has-bg a.main, body.light.has-bg .tabs button, body.light.has-bg .add input, body.light.has-bg .x,
+  body.light.has-bg .note-body, body.light.has-bg .back, body.light.has-bg .add button, body.light.has-bg .piece, body.light.has-bg .ediin,
+  body.light.has-bg .editbox textarea{background-color:rgba(255,255,255,.66);border-color:rgba(0,0,0,.22);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+  body.light.has-bg .tabs button[aria-selected="true"]{background-color:rgba(255,255,255,.86);border-color:#111}
+  body.light.has-bg #app{text-shadow:0 0 3px rgba(255,255,255,.9),0 0 8px rgba(255,255,255,.7)}
+  body.light.has-bg header h1, body.light.has-bg header .sub, body.light.has-bg .empty, body.light.has-bg > #app .scroll > .sub{background:rgba(255,255,255,.65);border-radius:10px;padding:0 .3em}
+  body.light #bg::after{background:rgba(255,255,255,.08)}
+  /* Phone: rows with side buttons put the buttons underneath, so the full text runs across */
+  body.light .row:has(> .main):has(> .x){flex-wrap:wrap;row-gap:1.5vw}
+  body.light .row:has(> .main):has(> .x) > .main{flex:1 1 100%}
+  body.light .row:has(> .main):has(> .x) > .x{flex:1 1 0;min-width:0;padding:.3em .2em;font-size:.85em}
+  body.light .row .t, body.light .hdrow .t{white-space:normal;overflow:visible;display:block;-webkit-line-clamp:unset;line-height:1.25}
+  body.light .gtabs button{font-size:.6em;padding:.35em .05em} body.light .gtabs .cnt{margin-left:.1em}
 </style>
 </head>
 <body>
@@ -118,6 +142,9 @@
     return u;
   }
   const SYNC_URL = findSyncUrl();
+  // Phones get light boxes with black lettering; the glasses keep white on black (black is see-through there)
+  const LIGHT = (()=>{ try { return innerHeight > innerWidth*1.2 && matchMedia('(pointer: coarse)').matches; } catch(e){ return false; } })();
+  if (LIGHT) document.body.classList.add('light');
 
   const KEY = 'mrbd-home-hub-v1';
   const DIRTY_KEY = KEY + '-dirty';
@@ -308,7 +335,7 @@
     inp.addEventListener('keydown',e=>{ if(e.key==='Enter'&&inp.value.trim()){ e.preventDefault(); commit(); } });
   }
   function focusSel(sel){ const el=app.querySelector(sel); if(el) el.focus(); return !!el; }
-  function focusFirst(){ const el=app.querySelector('.scroll button, .scroll a, .scroll [tabindex], .add input'); if(el) el.focus(); }
+  function focusFirst(){ const el=app.querySelector(LIGHT ? '.scroll button, .scroll a, .scroll [tabindex], header button' : '.scroll button, .scroll a, .scroll [tabindex], .add input'); if(el) el.focus(); }   // phone: never pop the keyboard just from opening a screen
   const countOpen = arr => live(arr).filter(i=>!i.done).length;
 
   // Generic checklist (Honey-Do, Shopping, and project tabs)
@@ -384,7 +411,7 @@
 
   // ----- Honey-Do with priorities 1 (most urgent) to 5 -----
   const PRIS = [1,2,3,4,5];
-  const PRI_COLOR = {1:'#ff6b6b', 2:'#ffb35c', 3:'#ffe66b', 4:'#7dff9a', 5:'#5fd3ff'};
+  const PRI_COLOR = LIGHT ? {1:'#c0322b', 2:'#b85c00', 3:'#8a6d00', 4:'#0b7a3c', 5:'#1d5aa6'} : {1:'#ff6b6b', 2:'#ffb35c', 3:'#ffe66b', 4:'#7dff9a', 5:'#5fd3ff'};
   const priOf = i => PRIS.includes(i.pri) ? i.pri : 3;   // items from before priorities land in 3
   let priOpen = null;   // item whose priority picker is showing
   // Tab row for 1–5 with a count on every tab (zero included), plus an optional extra tab.
@@ -425,7 +452,7 @@
   const addedAt = i => i.c || i.u || now();   // items from before day-tracking count from their last change
   function ageBadge(i){
     const d = daysBetween(addedAt(i), now());
-    const color = d>=30 ? 'var(--warn)' : d>=14 ? '#ffe66b' : 'var(--dim)';
+    const color = d>=30 ? 'var(--warn)' : d>=14 ? 'var(--yel)' : 'var(--dim)';
     return `<span class="sub" style="color:${color};flex:0 0 auto">${d>=30?'🕸 ':''}${d===0?'today':d+'d'}</span>`;
   }
 
@@ -825,7 +852,7 @@
         </div>
         ${ph?`<div class="row"><a class="main" href="tel:${esc(ph)}" target="_top" data-act="call" style="justify-content:center;color:var(--good)">📞 Call</a></div>
         <div class="row"><a class="main" href="sms:${esc(ph)}" target="_top" data-act="text" style="justify-content:center;color:var(--accent)">💬 Text message</a></div>`:''}
-        ${em?`<div class="row"><a class="main" href="mailto:${esc(em)}" target="_top" data-act="email" style="justify-content:center;color:#ffe66b">✉️ Email</a></div>`:''}
+        ${em?`<div class="row"><a class="main" href="mailto:${esc(em)}" target="_top" data-act="email" style="justify-content:center;color:var(--yel)">✉️ Email</a></div>`:''}
         <div class="row"><button class="main" id="editc" style="justify-content:center">✏️ Edit contact</button></div>
         <div class="row"><button class="main small ${armed===c.id?'danger':''}" id="delc" style="justify-content:center">${armed===c.id?'Press again to delete':'🗑 Delete contact'}</button></div>
       </div>`;
