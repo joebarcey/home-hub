@@ -602,7 +602,7 @@
 
   // Notes saved from Lumber Walk start "Lumber walk 11/15 · Aisle 17: J-hooks are full."
   // Show the date in orange and the area + standard in blue; everything else stays white.
-  const LW_LINE = /^(Lumber walk \d+\/\d+)( · )([^:\n]+?)(: )?(.*)$/;
+  const LW_LINE = /^((?:Lumber walk|Observation|Monday meeting) \d+\/\d+)( · )([^:\n]+?)(: )?(.*)$/;
   function noteLineHtml(line){
     const m = String(line).match(LW_LINE);
     if (!m) return esc(line);
