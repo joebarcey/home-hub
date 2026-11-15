@@ -57,6 +57,8 @@
   .gtabs button{font-size:.7em;padding:.35em .1em;white-space:nowrap}
   .gtabs .cnt{margin-left:.15em;min-width:1.1em;padding:0 .2em}
   .piece{display:block;width:100%;text-align:left;white-space:normal;line-height:1.4;padding:.35em .7em;margin-bottom:1vw;border-radius:12px;border:2px solid transparent}
+  .nd{color:#ffb35c;font-weight:600} .nsep{color:var(--dim)} .ns{color:#7bbcff}
+  .crossed .nd, .crossed .ns{color:inherit}
   .editbox{margin:0 0 2vw}
   .editbox textarea{width:100%;background:#111;border:2px solid var(--accent);border-radius:14px;padding:.45em .7em;line-height:1.4;resize:vertical}
   body.has-bg .editbox textarea{background-color:rgba(0,0,0,.55)}
@@ -562,6 +564,15 @@
   function fmtDate(ts){ try { return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric'}); } catch(e){ return ''; } }
   const noteCat = n => n.cat || 'personal'; // older notes land in Personal
 
+  // Notes saved from Lumber Walk start "Lumber walk 11/15 · Aisle 17: J-hooks are full."
+  // Show the date in orange and the area + standard in blue; everything else stays white.
+  const LW_LINE = /^(Lumber walk \d+\/\d+)( · )([^:\n]+?)(: )?(.*)$/;
+  function noteLineHtml(line){
+    const m = String(line).match(LW_LINE);
+    if (!m) return esc(line);
+    return `<span class="nd">${esc(m[1])}</span><span class="nsep">${esc(m[2])}</span><span class="ns">${esc(m[3])}${esc(m[4]||'')}${esc(m[5]||'')}</span>`;
+  }
+  const noteHtml = text => String(text).split('\n').map(noteLineHtml).join('\n');
   let showDoneNotes = false;
   function renderNotes(catId){
     const tab = NOTE_TABS.find(t=>t.id===catId) || NOTE_TABS[0];
@@ -570,7 +581,7 @@
     const notes=inTab.filter(n=>!n.done), doneNotes=inTab.filter(n=>n.done);
     const block = n => `<div class="row"><button class="main block notecard${n.done?' crossed':''}" data-note="${n.id}">
       <span class="sub">${fmtDate(n.created)}${n.done?' · ✔ done':''}</span>
-      <span class="preview">${esc(n.text.replace(/^✓ /gm,''))}</span></button></div>`;
+      <span class="preview">${noteHtml(n.text.replace(/^✓ /gm,''))}</span></button></div>`;
     const rows = notes.map(block).join('') + (doneNotes.length ? `<div class="row"><button class="main small" id="showdone" style="justify-content:center;color:var(--good)">${showDoneNotes?'Hide':'Show'} ${doneNotes.length} done</button></div>` + (showDoneNotes?doneNotes.map(block).join(''):'') : '');
     app.innerHTML = header('📝 Notes', '#/') +
       `<div class="tabs" role="tablist">${NOTE_TABS.map(t=>{
@@ -842,7 +853,7 @@
     // Each line broken into pieces small enough that swiping on the glasses walks through all of it
     const piecesOf = ln => {
       const txt = ln.replace(/^✓ /,''); if (!txt.trim()) return [];
-      if (txt.length <= 140) return [txt];
+      if (txt.length <= 140 || LW_LINE.test(txt)) return [txt];
       const bits = (txt.match(/[^.!?]+[.!?]*\s*/g) || [txt]).flatMap(sen => sen.length<=140 ? [sen] : sen.split(/(?<=\s)/));
       return bits.reduce((a,b)=>{ if (a.length && (a[a.length-1]+b).length <= 140) a[a.length-1]+=b; else a.push(b); return a; }, []).map(p=>p.trim());
     };
@@ -857,7 +868,7 @@
     if (editLine==='all') body = editBox(n.text, Math.min(14, Math.max(5, lines.length+2)));
     else body = lines.map((ln,i)=>{
       if (editLine===i) return editBox(ln.replace(/^✓ /,''), Math.min(6, Math.max(2, Math.ceil(ln.length/34))));
-      return piecesOf(ln).map(p=>`<button class="piece${n.done?' crossed':''}" data-lk="${k++}" data-eline="${i}">${esc(p)}</button>`).join('');
+      return piecesOf(ln).map(p=>`<button class="piece${n.done?' crossed':''}" data-lk="${k++}" data-eline="${i}">${noteLineHtml(p)}</button>`).join('');
     }).join('');
     formOpen = editLine!==null;
     app.innerHTML = header(cur.label+' note', listHash, fmtDate(n.created)+(n.done?' · ✔ done':'')) + `
