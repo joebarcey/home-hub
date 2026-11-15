@@ -60,6 +60,8 @@
   .nd{color:#ffb35c;font-weight:600} .nsep{color:var(--dim)} .ns{color:#7bbcff}
   .crossed .nd, .crossed .ns{color:inherit}
   .editbox{margin:0 0 2vw}
+  .ediin{flex:1;min-width:0;background:#111;border:2px solid var(--accent);border-radius:14px;padding:.45em .7em}
+  body.has-bg .ediin{background-color:rgba(0,0,0,.55)}
   .editbox textarea{width:100%;background:#111;border:2px solid var(--accent);border-radius:14px;padding:.45em .7em;line-height:1.4;resize:vertical}
   body.has-bg .editbox textarea{background-color:rgba(0,0,0,.55)}
   .notecard .preview{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;line-height:1.35;margin-top:.15em}
@@ -249,7 +251,7 @@
   }
 
   // Re-draw after new data arrives without yanking the cursor around.
-  const FOCUS_ATTRS=['data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  const FOCUS_ATTRS=['data-edit','data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
   function refresh(){
     const a=document.activeElement;
     if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
@@ -272,7 +274,7 @@
     return { a:h[0]||'', b:h[1]||'', c:h[2]||'', d:h[3]||'' };
   }
   function go(hash, replace){
-    armed = null; bgMenu = false; editLine = null;
+    armed = null; bgMenu = false; editLine = null; editItem = null;
     if (replace) stack[stack.length-1] = hash; else stack.push(hash);
     if (histOK){
       try { if (replace) history.replaceState(null,'',hash); else history.pushState(null,'',hash); }
@@ -308,14 +310,39 @@
   const countOpen = arr => live(arr).filter(i=>!i.done).length;
 
   // Generic checklist (Honey-Do, Shopping, and project tabs)
-  function checklistRows(arr){
-    return live(arr).map(it=>`
+  // editItem: id of a checklist item being changed, or 'pname' while renaming a project
+  let editItem = null;
+  function editRow(val, ph){
+    return `<div class="row"><input id="edi" class="ediin" type="text" value="${esc(val)}" placeholder="${esc(ph||'')}" aria-label="Change it" autocomplete="off">
+      <button class="x" id="edisave" style="color:var(--good)" aria-label="Save">✔</button>
+      <button class="x" id="edicancel" aria-label="Cancel">✕</button></div>`;
+  }
+  // Wire up the edit box; onSave gets the new text
+  function wireEdit(onSave, backSel){
+    const inp=document.getElementById('edi'); if(!inp) return;
+    formOpen = true;
+    const finish = sel => { editItem=null; formOpen=false; render(); if(!sel || !focusSel(sel)) focusFirst(); };
+    const commit = () => { const v=inp.value.trim(); if(!v){ inp.focus(); return; } onSave(v); save(); toast('Saved'); finish(backSel); };
+    document.getElementById('edisave').onclick = commit;
+    document.getElementById('edicancel').onclick = () => finish(backSel);
+    inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); commit(); } });
+    if (!IS_PHONE) inp.addEventListener('change', ()=>{ if(inp.value.trim()) commit(); });   // glasses dictation
+    inp.focus(); try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch(e){}
+  }
+  function checklistRows(arr, editable){
+    return live(arr).map(it=> editable && editItem===it.id ? editRow(it.text) : `
       <div class="row ${it.done?'done':''}">
         <button class="main" data-toggle="${it.id}"><span class="t">${esc(it.text)}</span><span class="check">${it.done?'✔':'○'}</span></button>
+        ${editable?`<button class="x" data-edit="${it.id}" aria-label="Change">✏️</button>`:''}
         <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
       </div>`).join('');
   }
   function wireChecklist(getArr){
+    app.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ editItem=b.dataset.edit; armed=null; render(); });
+    if (editItem && editItem!=='pname'){
+      const it=getArr().find(i=>i.id===editItem);
+      if (it) wireEdit(v=>{ it.text=v; touch(it); }, `[data-toggle="${it.id}"]`);
+    }
     app.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{
       const it=getArr().find(i=>i.id===b.dataset.toggle); it.done=!it.done;
       if (it.done) it.doneAt=now(); else delete it.doneAt;
@@ -476,7 +503,7 @@
       <div class="tabs" role="tablist">${JOB_TABS.map(t=>{ const c=live(j[t.id]).length; return `<button role="tab" data-jtab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`; }).join('')}</div>
       <div class="scroll">
         ${tab.id==='materials' && live(j.materials).length ? `<div class="sub" style="margin:0 0 2vw .3em">${matLeft?`Check off what you've got. ${matLeft} still to get.`:'Got everything. No excuses now.'}</div>`:''}
-        ${checklistRows(j[tab.id]) || `<div class="empty">${tab.id==='tasks'?'No tasks yet.<br>Break it into steps below.':'No materials yet.<br>Add what you need to buy or grab.'}</div>`}
+        ${checklistRows(j[tab.id], true) || `<div class="empty">${tab.id==='tasks'?'No tasks yet.<br>Break it into steps below.':'No materials yet.<br>Add what you need to buy or grab.'}</div>`}
         <div class="row"><button class="main small" id="jobdone" style="justify-content:center;color:var(--good)">${j.done?'↩ Put job back on the list':'✔ Mark whole job done'}</button></div>
       </div>` + addBox(tab.ph);
     wireBack('#/honeydo');
@@ -547,12 +574,15 @@
     app.innerHTML = header(esc(p.name), '#/projects', g.n?g.pct+'%':'') + `
       <div class="tabs" role="tablist">${PROJECT_TABS.map(t=>{ const c=live(p[t.id]).length; return `<button role="tab" data-tab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`; }).join('')}</div>
       <div class="scroll">
-        ${checklistRows(p[tab.id]) || '<div class="empty">Nothing here yet.</div>'}
+        ${checklistRows(p[tab.id], true) || '<div class="empty">Nothing here yet.</div>'}
+        ${editItem==='pname' ? editRow(p.name, 'Project name') : `<div class="row"><button class="main small" id="renp" style="justify-content:center">✏️ Rename project</button></div>`}
         <div class="row"><button class="main small ${armed===p.id?'danger':''}" id="delp" style="justify-content:center">${armed===p.id?'Press again to delete project':'🗑 Delete project'}</button></div>
       </div>` + addBox(tab.ph);
     wireBack('#/projects');
     app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ go(`#/p/${p.id}/${b.dataset.tab}`, true); focusSel(`[data-tab="${b.dataset.tab}"]`); });
     wireChecklist(()=>p[tab.id]);
+    const rn=document.getElementById('renp'); if(rn) rn.onclick=()=>{ editItem='pname'; armed=null; render(); };
+    if (editItem==='pname') wireEdit(v=>{ p.name=v; touch(p); }, '#renp');
     document.getElementById('delp').onclick=()=>{
       if(armed===p.id){ remove(p); armed=null; save(); go('#/projects', true); }
       else { armed=p.id; render(); focusSel('#delp'); }
