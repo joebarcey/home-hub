@@ -56,7 +56,10 @@
   .gtabs{gap:1.5vw}
   .gtabs button{font-size:.7em;padding:.35em .1em;white-space:nowrap}
   .gtabs .cnt{margin-left:.15em;min-width:1.1em;padding:0 .2em}
-  .piece{white-space:normal;line-height:1.4;padding:.35em .7em;margin-bottom:1vw;border-radius:12px;border:2px solid transparent}
+  .piece{display:block;width:100%;text-align:left;white-space:normal;line-height:1.4;padding:.35em .7em;margin-bottom:1vw;border-radius:12px;border:2px solid transparent}
+  .editbox{margin:0 0 2vw}
+  .editbox textarea{width:100%;background:#111;border:2px solid var(--accent);border-radius:14px;padding:.45em .7em;line-height:1.4;resize:vertical}
+  body.has-bg .editbox textarea{background-color:rgba(0,0,0,.55)}
   .notecard .preview{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;line-height:1.35;margin-top:.15em}
   .crossed, .crossed .preview{color:var(--dim);text-decoration:line-through}
   a.main{text-decoration:none;color:inherit;border:2px solid var(--line);border-radius:14px;padding:.45em .7em}
@@ -244,7 +247,7 @@
   }
 
   // Re-draw after new data arrives without yanking the cursor around.
-  const FOCUS_ATTRS=['data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  const FOCUS_ATTRS=['data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
   function refresh(){
     const a=document.activeElement;
     if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
@@ -267,7 +270,7 @@
     return { a:h[0]||'', b:h[1]||'', c:h[2]||'', d:h[3]||'' };
   }
   function go(hash, replace){
-    armed = null; bgMenu = false;
+    armed = null; bgMenu = false; editLine = null;
     if (replace) stack[stack.length-1] = hash; else stack.push(hash);
     if (histOK){
       try { if (replace) history.replaceState(null,'',hash); else history.pushState(null,'',hash); }
@@ -828,31 +831,71 @@
     if(!app.contains(document.activeElement)) focusSel('#fname');
   }
 
+  // Editing a note: tap a line to change just that line, or (on the phone) edit the whole note at once.
+  let editLine = null;   // number = that line is open for editing, 'all' = whole note
   function renderNote(id){
     const n=live(data.notes).find(x=>x.id===id); if(!n) return go('#/notes', true);
     const cur=NOTE_TABS.find(t=>t.id===noteCat(n)) || NOTE_TABS[0];
     const others=NOTE_TABS.filter(t=>t.id!==cur.id);
     const listHash='#/notes/'+cur.id;
-    // The full note, broken into pieces small enough that swiping on the glasses walks through all of it
-    const pieces = [];
-    n.text.split('\n').forEach(ln=>{
-      const txt = ln.replace(/^✓ /,''); if (!txt.trim()) return;
-      if (txt.length <= 140){ pieces.push(txt); return; }
-      // pack whole sentences (or, for run-on dictation, whole words) into pieces of about 140 characters
+    const lines = n.text.split('\n');
+    // Each line broken into pieces small enough that swiping on the glasses walks through all of it
+    const piecesOf = ln => {
+      const txt = ln.replace(/^✓ /,''); if (!txt.trim()) return [];
+      if (txt.length <= 140) return [txt];
       const bits = (txt.match(/[^.!?]+[.!?]*\s*/g) || [txt]).flatMap(sen => sen.length<=140 ? [sen] : sen.split(/(?<=\s)/));
-      bits.reduce((a,b)=>{ if (a.length && (a[a.length-1]+b).length <= 140) a[a.length-1]+=b; else a.push(b); return a; }, []).forEach(p=>pieces.push(p.trim()));
-    });
+      return bits.reduce((a,b)=>{ if (a.length && (a[a.length-1]+b).length <= 140) a[a.length-1]+=b; else a.push(b); return a; }, []).map(p=>p.trim());
+    };
+    const editBox = (val, rows) => `<div class="editbox">
+        <textarea id="edt" rows="${rows}" aria-label="Edit">${esc(val)}</textarea>
+        <div class="row" style="margin:1.5vw 0 0">
+          <button class="main" id="edsave" style="justify-content:center;color:var(--good)">✔ Save</button>
+          ${editLine==='all'?'':`<button class="main ${armed==='ln'?'danger':''}" id="eddel" style="justify-content:center">${armed==='ln'?'Sure?':'🗑 Remove'}</button>`}
+          <button class="main" id="edcancel" style="justify-content:center">Cancel</button>
+        </div></div>`;
+    let k=0, body='';
+    if (editLine==='all') body = editBox(n.text, Math.min(14, Math.max(5, lines.length+2)));
+    else body = lines.map((ln,i)=>{
+      if (editLine===i) return editBox(ln.replace(/^✓ /,''), Math.min(6, Math.max(2, Math.ceil(ln.length/34))));
+      return piecesOf(ln).map(p=>`<button class="piece${n.done?' crossed':''}" data-lk="${k++}" data-eline="${i}">${esc(p)}</button>`).join('');
+    }).join('');
+    formOpen = editLine!==null;
     app.innerHTML = header(cur.label+' note', listHash, fmtDate(n.created)+(n.done?' · ✔ done':'')) + `
       <div class="scroll">
-        <div class="row">
+        ${editLine===null?`<div class="row">
           <button class="main" id="donen" style="justify-content:center;color:var(--good)">${n.done?'↩ Not done':'✔ Done'}</button>
           <button class="main" id="addn" style="justify-content:center;color:var(--accent)">＋ Add to</button>
           <button class="main ${armed===n.id?'danger':''}" id="deln" style="justify-content:center">${armed===n.id?'Sure?':'🗑 Delete'}</button>
-        </div>
-        ${pieces.map((p,i)=>`<div class="piece${n.done?' crossed':''}" tabindex="0" data-lk="${i}">${esc(p)}</div>`).join('') || '<div class="empty">This note is empty.<br>Tap Add to.</div>'}
-        ${others.map(t=>`<div class="row" style="margin-top:2vw"><button class="main small" data-move="${t.id}" style="justify-content:center">Move to ${t.label}</button></div>`).join('')}
-      </div>` + addBox('Add to this note');
+        </div>`:''}
+        ${body || '<div class="empty">This note is empty.<br>Tap Add to.</div>'}
+        ${editLine===null?`<div class="sub" style="margin:1vw 0 2vw .3em">Pinch a line to change it.</div>
+        ${IS_PHONE?`<div class="row"><button class="main small" id="editall" style="justify-content:center">✏️ Edit whole note</button></div>`:''}
+        ${others.map(t=>`<div class="row" style="margin-top:2vw"><button class="main small" data-move="${t.id}" style="justify-content:center">Move to ${t.label}</button></div>`).join('')}`:''}
+      </div>` + (editLine===null ? addBox('Add to this note') : '');
     wireBack(listHash);
+    const done = (focus)=>{ editLine=null; armed=null; formOpen=false; render(); if(!focus || !focusSel(focus)) focusFirst(); };
+    if (editLine!==null){
+      const ta=document.getElementById('edt'), which=editLine;
+      const commit=()=>{
+        const v=ta.value.replace(/\s+$/,'');
+        if (which==='all') n.text=v;
+        else { const ls=n.text.split('\n'); ls[which]=(ls[which].startsWith('✓ ')?'✓ ':'')+v.replace(/\n+/g,' '); n.text=ls.join('\n'); }
+        touch(n); save(); toast('Note saved'); done(which==='all'?'#editall':`[data-eline="${which}"]`);
+      };
+      document.getElementById('edsave').onclick=commit;
+      document.getElementById('edcancel').onclick=()=>done(which==='all'?'#editall':`[data-eline="${which}"]`);
+      const dl=document.getElementById('eddel');
+      if(dl) dl.onclick=()=>{
+        if(armed!=='ln'){ armed='ln'; render(); focusSel('#eddel'); return; }
+        const ls=n.text.split('\n'); ls.splice(which,1); n.text=ls.join('\n'); touch(n); save(); toast('Line removed'); done();
+      };
+      // The glasses' dictation finishes with a "change" event; save right away there
+      if (!IS_PHONE) ta.addEventListener('change', ()=>{ if (ta.value.trim()) commit(); });
+      ta.focus(); try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch(e){}
+      return;
+    }
+    app.querySelectorAll('[data-eline]').forEach(b=>b.onclick=()=>{ editLine=+b.dataset.eline; armed=null; render(); });
+    const ea=document.getElementById('editall'); if(ea) ea.onclick=()=>{ editLine='all'; armed=null; render(); };
     app.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>{ n.cat=b.dataset.move; touch(n); save(); render(); focusSel('[data-move]'); });
     document.getElementById('donen').onclick=()=>{
       n.done=!n.done; touch(n); save();
@@ -945,6 +988,7 @@
   const lineOf = el => el.closest('.row, .tabs, .add, header, .bgmenu') || el;
   document.addEventListener('keydown', e=>{
     if (e.key!=='ArrowDown' && e.key!=='ArrowUp') return;
+    if (e.target && e.target.tagName==='TEXTAREA' && IS_PHONE) return;   // let the phone's cursor move inside a note being edited
     const all = [...app.querySelectorAll(FOCUSABLE)].filter(el=>!el.disabled && el.offsetParent!==null);
     if (!all.length) return;
     const cur = document.activeElement;
