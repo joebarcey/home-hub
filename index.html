@@ -73,7 +73,8 @@
   body:not(.light) .row .main{padding:.4em .55em}
   /* long project / job names in the title get two lines instead of "…" */
   header h1{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.15}
-  .stabs button{white-space:nowrap}
+  .qty{font-size:.8em;opacity:.8;margin-left:.2em}
+  .stabs button{white-space:nowrap;font-size:.72em;padding:.4em .1em} .stabs .cnt{margin-left:.15em}
   .shophead{font-size:.82em;border-style:dashed}
   .shophead .sub{flex:0 0 auto}
   .main.opened{border-color:var(--accent)}
@@ -82,6 +83,8 @@
   .rowacts .main{white-space:nowrap;flex:1 1 auto} .rowacts [data-edit], .rowacts [data-del]{flex:0 1 2.6em}
   .ovhead{justify-content:space-between}
   #ovw{padding:.45em .5em}
+  header h1.tapme{cursor:pointer}
+  header h1 .mg{font-size:.55em;margin-left:.3em;color:var(--dim);vertical-align:middle}
   .editbox{margin:0 0 2vw}
   .ediin{flex:1;min-width:0;background:var(--field);border:2px solid var(--accent);border-radius:14px;padding:.45em .7em}
   body.has-bg .ediin{background-color:rgba(0,0,0,.55)}
@@ -299,7 +302,7 @@
   }
 
   // Re-draw after new data arrives without yanking the cursor around.
-  const FOCUS_ATTRS=['data-ovp','data-ovw','data-rowopen','data-shopback','data-mgone','data-mrm','data-mback','data-stab','data-mtog','data-edit','data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  const FOCUS_ATTRS=['data-gtog','data-grm','data-sopen','data-sgo','data-ovp','data-ovw','data-rowopen','data-shopback','data-mgone','data-mrm','data-mback','data-stab','data-mtog','data-edit','data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
   function refresh(){
     const a=document.activeElement;
     if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
@@ -322,7 +325,7 @@
     return { a:h[0]||'', b:h[1]||'', c:h[2]||'', d:h[3]||'' };
   }
   function go(hash, replace){
-    armed = null; bgMenu = false; editLine = null; editItem = null; openRow = null;
+    armed = null; bgMenu = false; editLine = null; editItem = null; openRow = null; shopOpen = null; showMgmt = false;
     if (replace) stack[stack.length-1] = hash; else stack.push(hash);
     if (histOK){
       try { if (replace) history.replaceState(null,'',hash); else history.pushState(null,'',hash); }
@@ -338,6 +341,13 @@
   }
 
   // ---------- helpers ----------
+  let showMgmt = false;
+  function wireMgmt(){
+    if (!LIGHT) return;
+    const h=app.querySelector('header h1'); if(!h) return;
+    h.classList.add('tapme'); h.insertAdjacentHTML('beforeend', `<span class="mg">${showMgmt?'▴':'▾'}</span>`);
+    h.onclick=()=>{ showMgmt=!showMgmt; armed=null; render(); };
+  }
   function header(title, backTo, right){
     return `<header>${backTo!==null?`<button class="back" id="back" aria-label="Back">‹</button>`:''}
       <h1>${title}</h1>${right?`<span class="sub">${right}</span>`:''}</header>`;
@@ -614,15 +624,16 @@
       <div class="scroll">
         ${tab.id==='materials' && live(j.materials).length ? `<div class="sub" style="margin:0 0 2vw .3em">${matLeft?`Check off what you've got. ${matLeft} still to get.`:'Got everything. No excuses now.'}</div>`:''}
         ${checklistRows(j[tab.id], true, tab.id==='materials') || `<div class="empty">${tab.id==='tasks'?'No tasks yet.<br>Break it into steps below.':'No materials yet.<br>Add what you need to buy or grab.'}</div>`}
-        ${editItem==='jname' ? editRow(j.text, 'Job name') : `<div class="row"><button class="main small" id="renj" style="justify-content:center">✏️ Rename job</button></div>`}
-        <div class="row"><button class="main small" id="jobdone" style="justify-content:center;color:var(--good)">${j.done?'↩ Put job back on the list':'✔ Mark whole job done'}</button></div>
+        ${LIGHT && !showMgmt && editItem!=='jname' ? '' : `${editItem==='jname' ? editRow(j.text, 'Job name') : `<div class="row"><button class="main small" id="renj" style="justify-content:center">✏️ Rename job</button></div>`}
+        <div class="row"><button class="main small" id="jobdone" style="justify-content:center;color:var(--good)">${j.done?'↩ Put job back on the list':'✔ Mark whole job done'}</button></div>`}
       </div>` + addBox(tab.ph);
     wireBack('#/honeydo');
     app.querySelectorAll('[data-jtab]').forEach(b=>b.onclick=()=>{ go(`#/job/${j.id}/${b.dataset.jtab}`, true); focusSel(`[data-jtab="${b.dataset.jtab}"]`); });
     wireChecklist(()=>j[tab.id]);
     const rj=document.getElementById('renj'); if(rj) rj.onclick=()=>{ editItem='jname'; armed=null; render(); };
     if (editItem==='jname') wireEdit(v=>{ j.text=v; touch(j); }, '#renj');
-    document.getElementById('jobdone').onclick=()=>{
+    wireMgmt();
+    const jd=document.getElementById('jobdone'); if(jd) jd.onclick=()=>{
       j.done=!j.done; if (j.done) j.doneAt=now(); else delete j.doneAt;
       touch(j); save(); goBack('#/honeydo');
     };
@@ -639,72 +650,86 @@
     return out.sort((a,b)=>(a.m.done-b.m.done)||(a.pri-b.pri)||a.m.text.localeCompare(b.m.text));
   }
   // Shopping opens to three tabs: Projects, Honey-Do (materials pulled in automatically) and Other (your own list).
-  let showOnHand = false;
+  // Shopping: All / Projects / Honey-Do / Other. Each list is flat, sorted by priority then A–Z.
+  // Tap an item to see where it's from and what you can do with it.
+  let showOnHand = false, shopOpen = null;
   function renderShopping(sec){
-    const arr = data[sec.id], linked = linkedMaterials();
-    const onList = linked.filter(x=>!x.m.noshop);
-    const fromP = onList.filter(x=>x.key[0]==='p'), fromH = onList.filter(x=>x.key[0]==='h');
-    const own = live(arr).slice().sort((a,b)=>a.done-b.done);
-    const need = l => l.filter(x=>!x.m.done).length;
-    const counts = { projects: need(fromP), honeydo: need(fromH), other: own.filter(i=>!i.done).length };
-    const TABS = [{id:'projects', label:'Projects'}, {id:'honeydo', label:'Honey-Do'}, {id:'other', label:'Other'}];
-    let tab = route().b;
-    if (!TABS.some(t=>t.id===tab)) tab = (TABS.find(t=>counts[t.id]) || TABS[2]).id;
-    const totalNeed = counts.projects + counts.honeydo + counts.other;
-    let body = '';
-    if (tab === 'other') {
-      const doneOwn = own.filter(i=>i.done);
-      body = (checklistRows(own) || '<div class="empty">Nothing on the list.<br>Add something below.</div>') +
-        (doneOwn.length ? `<div class="row"><button class="main small ${armed==='clear'?'danger':''}" id="clear" style="justify-content:center">${armed==='clear'?'Press again to clear':'Clear '+doneOwn.length+' done'}</button></div>` : '');
-    } else {
-      const list = tab === 'projects' ? fromP : fromH;
-      // one group per project / job, most urgent first
-      const groups = [];
-      list.forEach(x=>{ const id=x.key.split('|')[1]; let g=groups.find(g=>g.id===id); if(!g){ g={id, from:x.from, pri:x.pri, items:[]}; groups.push(g); } g.items.push(x); });
-      groups.sort((a,b)=>(need(b.items)>0)-(need(a.items)>0) || a.pri-b.pri || a.from.localeCompare(b.from));
-      const onHandN = list.length - need(list);
-      body = groups.map(g=>{
-        const n = need(g.items), shown = g.items.filter(x=>(showOnHand && tab === 'projects') || !x.m.done);
-        if (!shown.length) return '';
-        return `<div class="row"><button class="main shophead" ${tab==='projects'?`data-open="${g.id}"`:`data-job="${g.id}"`} style="color:${PRI_COLOR[g.pri]}">
-            <span class="t">P${g.pri} · ${esc(g.from)}</span><span class="sub">${n?n+' to get':'all on hand'} ›</span></button></div>` +
-          shown.map(x=>`<div class="row ${x.m.done?'done':''}" style="margin-left:1.2em">
-            <button class="main" data-mtog="${x.key}" aria-label="${esc(x.m.text)}, ${x.m.done?'on hand':'need it'}">
-              <span class="t" style="${x.m.done?'':'color:'+PRI_COLOR[x.pri]}">${esc(x.m.text)}</span><span class="check">${x.m.done?'✔':'○'}</span></button>
-            <button class="x ${armed==='rm'+x.key?'danger':''}" data-mrm="${x.key}" aria-label="Take off the shopping list">${armed==='rm'+x.key?'Sure?':'✕'}</button></div>`).join('');
-      }).join('') || `<div class="empty">${list.length?'Everything is on hand. 👍':'No materials yet.<br>Add them inside a '+(tab==='projects'?'project':'Honey-Do job')+'.'}</div>`;
-      if (onHandN && tab === 'projects') body += `<div class="row"><button class="main small" id="onhand" style="justify-content:center;color:var(--good)">${showOnHand?'Hide':'Show'} ${onHandN} on hand</button></div>`;
-    }
-    app.innerHTML = header(`${sec.icon} ${sec.label}`, '#/', `${totalNeed} to get`) +
+    const arr = data[sec.id], linked = linkedMaterials().filter(x=>!x.m.noshop);
+    const own = live(arr);
+    const abc = (a,b)=>a.text.localeCompare(b.text, undefined, {sensitivity:'base'});
+    const mats = linked.map(x=>({kind:'mat', rk:'m:'+x.key, key:x.key, text:x.m.text, pri:x.pri, from:x.from, src:x.key[0], done:!!x.m.done}));
+    const mine = own.map(i=>({kind:'own', rk:'o:'+i.id, id:i.id, text:i.text, pri:9, done:!!i.done}));
+    const need = l => l.filter(x=>!x.done).length;
+    const fromP = mats.filter(x=>x.src==='p'), fromH = mats.filter(x=>x.src==='h');
+    const counts = { all: need(mats)+need(mine), projects: need(fromP), honeydo: need(fromH), other: need(mine) };
+    const TABS = [{id:'all', label:'All'}, {id:'projects', label:'Projects'}, {id:'honeydo', label:'Honey-Do'}, {id:'other', label:'Other'}];
+    let tab = route().b; if (!TABS.some(t=>t.id===tab)) tab = 'all';
+    let list = tab==='all' ? mats.concat(mine) : tab==='projects' ? fromP : tab==='honeydo' ? fromH : mine;
+    const hiddenDone = tab==='projects' && !showOnHand ? list.filter(x=>x.done).length : 0;
+    if (tab==='all' || tab==='honeydo' || (tab==='projects' && !showOnHand)) list = list.filter(x=>!x.done);
+    // identical names (ignoring case and extra spaces) are combined into one line with ×2, ×3…
+    const norm = t => t.toLowerCase().replace(/\s+/g,' ').trim();
+    const groups = new Map();
+    list.forEach(x=>{ const k=norm(x.text); if(!groups.has(k)) groups.set(k, []); groups.get(k).push(x); });
+    list = [...groups.entries()].map(([k,ms])=>{
+      const top = ms.slice().sort((a,b)=>a.pri-b.pri)[0];
+      const nice = (ms.find(m=>/^[A-Z0-9]/.test(m.text)) || top).text;   // prefer the capitalized spelling
+      return {rk:'g:'+k, text:nice, pri:top.pri, done:ms.every(m=>m.done), members:ms, kind: ms.every(m=>m.kind==='own') ? 'own' : 'mat'};
+    }).sort((a,b)=>a.done-b.done || a.pri-b.pri || abc(a,b));
+    const G = {}; list.forEach(g=>G[g.rk]=g);
+    const row = g => {
+      const open = shopOpen===g.rk, n = g.members.length;
+      const col = g.kind==='mat' && !g.done ? 'color:'+PRI_COLOR[g.pri] : '';
+      let acts = '';
+      if (open) {
+        acts = `<div class="row rowacts" style="flex-direction:column;gap:1vw">` + g.members.map(m=> m.kind==='mat'
+            ? `<button class="main" data-sgo="${m.key}" style="justify-content:flex-start;color:${PRI_COLOR[m.pri]}">P${m.pri} · ${esc(m.from)} ›${m.done?' <span class="sub">(on hand)</span>':''}</button>`
+            : `<div class="main sub" style="justify-content:flex-start">🛒 Other list${m.done?' (got it)':''}</div>`).join('') + `</div>
+          <div class="row rowacts">
+            <button class="main" data-gtog="${g.rk}" style="justify-content:center;color:var(--good)">${g.done?'↩ Undo':'✔ Got it'}${n>1?' (all '+n+')':''}</button>
+            <button class="main ${armed==='g'+g.rk?'danger':''}" data-grm="${g.rk}" style="justify-content:center">${armed==='g'+g.rk?'Sure?':(g.kind==='own'?'🗑 Delete':'✕ Off list')}${n>1&&armed!=='g'+g.rk?' (all)':''}</button></div>`;
+      }
+      return `<div class="row ${g.done?'done':''}"><button class="main${open?' opened':''}" data-sopen="${g.rk}" aria-expanded="${open}">
+          <span class="t" style="${col}">${esc(g.text)}${n>1?` <span class="qty">×${n}</span>`:''}</span><span class="check">${g.done?'✔':'○'}</span></button></div>` + acts;
+    };
+    let body = list.map(row).join('');
+    if (!body) body = `<div class="empty">${tab==='other'||tab==='all' ? 'Nothing on the list.<br>Add something below.' : 'Nothing to get here. 👍'}</div>`;
+    if (tab==='projects' && (hiddenDone || showOnHand) && fromP.some(x=>x.done)) body += `<div class="row"><button class="main small" id="onhand" style="justify-content:center;color:var(--good)">${showOnHand?'Hide':'Show'} ${fromP.filter(x=>x.done).length} on hand</button></div>`;
+    const doneOwn = own.filter(i=>i.done);
+    if (tab==='other' && doneOwn.length) body += `<div class="row"><button class="main small ${armed==='clear'?'danger':''}" id="clear" style="justify-content:center">${armed==='clear'?'Press again to clear':'Clear '+doneOwn.length+' done'}</button></div>`;
+    app.innerHTML = header(`${sec.icon} ${sec.label}`, '#/', `${counts.all} to get`) +
       `<div class="tabs stabs" role="tablist">${TABS.map(t=>`<button role="tab" data-stab="${t.id}" aria-selected="${t.id===tab}">${t.label}<span class="cnt${counts[t.id]?'':' zero'}">${counts[t.id]}</span></button>`).join('')}</div>
-      <div class="scroll">${body}</div>` + (tab === 'other' ? addBox(sec.ph) : '');
+      <div class="scroll">${body}</div>` + (tab==='other' || tab==='all' ? addBox(sec.ph) : '');
     wireBack('#/');
-    app.querySelectorAll('[data-stab]').forEach(b=>b.onclick=()=>{ go(`#/shopping/${b.dataset.stab}`, true); focusSel(`[data-stab="${b.dataset.stab}"]`); });
-    app.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>go(`#/p/${b.dataset.open}/materials`));
-    app.querySelectorAll('[data-job]').forEach(b=>b.onclick=()=>go(`#/job/${b.dataset.job}/materials`));
-    const oh=document.getElementById('onhand'); if(oh) oh.onclick=()=>{ showOnHand=!showOnHand; render(); focusSel('#onhand'); };
     const findMat = key => { const [src,pid,mid]=key.split('|'); const parent=(src==='h'?data.honeydo:data.projects).find(x=>x.id===pid); return parent && (parent.materials||[]).find(x=>x.id===mid); };
-    app.querySelectorAll('[data-mrm]').forEach(b=>b.onclick=()=>{
-      const key=b.dataset.mrm;
-      if (armed!=='rm'+key){ armed='rm'+key; render(); focusSel(`[data-mrm="${key}"]`); return; }
-      const m=findMat(key); if(!m) return; m.noshop='gone'; touch(m); armed=null; save(); render(); focusFirst();
-      toast('Off the shopping list.<br><span class="sub">Tap 🛒 in its Materials tab to put it back.</span>');
+    app.querySelectorAll('[data-stab]').forEach(b=>b.onclick=()=>{ shopOpen=null; go(`#/shopping/${b.dataset.stab}`, true); focusSel(`[data-stab="${b.dataset.stab}"]`); });
+    app.querySelectorAll('[data-sopen]').forEach(b=>b.onclick=()=>{ const k=b.dataset.sopen; shopOpen = shopOpen===k ? null : k; armed=null; render(); focusSel(`[data-sopen="${k}"]`); });
+    app.querySelectorAll('[data-sgo]').forEach(b=>b.onclick=()=>{ const [src,pid]=b.dataset.sgo.split('|'); shopOpen=null; go(src==='p' ? `#/p/${pid}/materials` : `#/job/${pid}/materials`); });
+    const oh=document.getElementById('onhand'); if(oh) oh.onclick=()=>{ showOnHand=!showOnHand; render(); focusSel('#onhand'); };
+    const setDone = (m, v) => {
+      const t = m.kind==='mat' ? findMat(m.key) : live(arr).find(i=>i.id===m.id); if(!t) return;
+      t.done = v; if(v) t.doneAt=now(); else delete t.doneAt; touch(t);
+    };
+    app.querySelectorAll('[data-gtog]').forEach(b=>b.onclick=()=>{
+      const g=G[b.dataset.gtog]; if(!g) return; const v=!g.done;
+      g.members.forEach(m=>setDone(m, v)); shopOpen=null; armed=null; save(); render(); focusFirst();
     });
-    app.querySelectorAll('[data-mtog]').forEach(b=>b.onclick=()=>{
-      const m=findMat(b.dataset.mtog); if(!m) return;
-      m.done=!m.done; if(m.done) m.doneAt=now(); else delete m.doneAt; touch(m); save(); render();
-      focusSel(`[data-mtog="${b.dataset.mtog}"]`) || focusFirst();
+    app.querySelectorAll('[data-grm]').forEach(b=>b.onclick=()=>{
+      const k=b.dataset.grm, g=G[k]; if(!g) return;
+      if (armed!=='g'+k){ armed='g'+k; render(); focusSel(`[data-grm="${k}"]`); return; }
+      g.members.forEach(m=>{
+        if (m.kind==='mat'){ const t=findMat(m.key); if(t){ t.noshop='gone'; touch(t); } }
+        else { const t=live(arr).find(i=>i.id===m.id); if(t) remove(t); }
+      });
+      armed=null; shopOpen=null; save(); render(); focusFirst();
+      if (g.kind==='mat') toast('Off the shopping list.<br><span class="sub">Tap 🛒 in its Materials tab to put it back.</span>');
     });
-    if (tab === 'other') {
-      wireChecklist(()=>data[sec.id]);
-      const clr=document.getElementById('clear');
-      if(clr) clr.onclick=()=>{
-        const doneOwn = live(arr).filter(i=>i.done);
-        if(armed==='clear'){ doneOwn.forEach(remove); armed=null; save(); render(); focusFirst(); }
-        else { armed='clear'; render(); focusSel('#clear'); }
-      };
-      wireAdd(t=>{ data[sec.id].push(newItem(t)); save(); render(); focusSel('#newi'); });
-    }
+    const clr=document.getElementById('clear');
+    if(clr) clr.onclick=()=>{
+      if(armed==='clear'){ doneOwn.forEach(remove); armed=null; save(); render(); focusFirst(); }
+      else { armed='clear'; render(); focusSel('#clear'); }
+    };
+    if (tab==='other' || tab==='all') wireAdd(t=>{ data[sec.id].push(newItem(t)); save(); render(); focusSel('#newi'); });
     if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
   }
   function renderList(sec){
@@ -773,15 +798,16 @@
       <div class="tabs" role="tablist">${PROJECT_TABS.map(t=>{ const c=live(p[t.id]).length; return `<button role="tab" data-tab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`; }).join('')}</div>
       <div class="scroll">
         ${checklistRows(p[tab.id], true, tab.id==='materials') || '<div class="empty">Nothing here yet.</div>'}
-        ${editItem==='pname' ? editRow(p.name, 'Project name') : `<div class="row"><button class="main small" id="renp" style="justify-content:center">✏️ Rename project</button></div>`}
-        <div class="row"><button class="main small ${armed===p.id?'danger':''}" id="delp" style="justify-content:center">${armed===p.id?'Press again to delete project':'🗑 Delete project'}</button></div>
+        ${LIGHT && !showMgmt && editItem!=='pname' ? '' : `${editItem==='pname' ? editRow(p.name, 'Project name') : `<div class="row"><button class="main small" id="renp" style="justify-content:center">✏️ Rename project</button></div>`}
+        <div class="row"><button class="main small ${armed===p.id?'danger':''}" id="delp" style="justify-content:center">${armed===p.id?'Press again to delete project':'🗑 Delete project'}</button></div>`}
       </div>` + addBox(tab.ph);
     wireBack('#/projects');
     app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ go(`#/p/${p.id}/${b.dataset.tab}`, true); focusSel(`[data-tab="${b.dataset.tab}"]`); });
     wireChecklist(()=>p[tab.id]);
     const rn=document.getElementById('renp'); if(rn) rn.onclick=()=>{ editItem='pname'; armed=null; render(); };
     if (editItem==='pname') wireEdit(v=>{ p.name=v; touch(p); }, '#renp');
-    document.getElementById('delp').onclick=()=>{
+    wireMgmt();
+    const dp=document.getElementById('delp'); if(dp) dp.onclick=()=>{
       if(armed===p.id){ remove(p); armed=null; save(); go('#/projects', true); }
       else { armed=p.id; render(); focusSel('#delp'); }
     };
@@ -1107,8 +1133,13 @@
           <button class="main ${armed===n.id?'danger':''}" id="deln" style="justify-content:center">${armed===n.id?'Sure?':'🗑 Delete'}</button>
         </div>`:''}
         ${body || '<div class="empty">This note is empty.<br>Tap Add to.</div>'}
-        ${editLine===null?`<div class="sub" style="margin:1vw 0 2vw .3em">Pinch a line to change it.</div>
+        ${editLine===null?`<div class="sub" style="margin:1vw 0 2vw .3em">${IS_PHONE?'Tap':'Pinch'} a line to change it.</div>
         ${IS_PHONE?`<div class="row"><button class="main small" id="editall" style="justify-content:center">✏️ Edit whole note</button></div>`:''}
+        ${IS_PHONE?(()=>{ const body=n.text.replace(/^✓ /gm,''), subj=body.split('\n')[0].slice(0,60);
+          const sms = (IS_IOS ? 'sms:&body=' : 'sms:?body=') + encodeURIComponent(body);
+          const mail = 'mailto:?subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(body);
+          return `<div class="row"><a class="main small" href="${sms}" target="_top" style="justify-content:center;color:var(--accent)">💬 Text it</a>
+            <a class="main small" href="${mail}" target="_top" style="justify-content:center;color:var(--accent)">✉️ Email it</a></div>`; })():''}
         ${others.map(t=>`<div class="row" style="margin-top:2vw"><button class="main small" data-move="${t.id}" style="justify-content:center">Move to ${t.label}</button></div>`).join('')}`:''}
       </div>` + (editLine===null ? addBox('Add to this note') : '');
     wireBack(listHash);
