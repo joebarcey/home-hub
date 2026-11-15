@@ -702,8 +702,9 @@
     n.text.split('\n').forEach(ln=>{
       const txt = ln.replace(/^✓ /,''); if (!txt.trim()) return;
       if (txt.length <= 140){ pieces.push(txt); return; }
-      (txt.match(/[^.!?]+[.!?]*\s*/g) || [txt]).reduce((a,sen)=>{
-        if (a.length && (a[a.length-1]+sen).length <= 140) a[a.length-1]+=sen; else a.push(sen); return a; }, []).forEach(p=>pieces.push(p.trim()));
+      // pack whole sentences (or, for run-on dictation, whole words) into pieces of about 140 characters
+      const bits = (txt.match(/[^.!?]+[.!?]*\s*/g) || [txt]).flatMap(sen => sen.length<=140 ? [sen] : sen.split(/(?<=\s)/));
+      bits.reduce((a,b)=>{ if (a.length && (a[a.length-1]+b).length <= 140) a[a.length-1]+=b; else a.push(b); return a; }, []).forEach(p=>pieces.push(p.trim()));
     });
     app.innerHTML = header(cur.label+' note', listHash, fmtDate(n.created)+(n.done?' · ✔ done':'')) + `
       <div class="scroll">
@@ -802,6 +803,26 @@
   }
 
   app.addEventListener('focusin', e=>{ if(e.target.scrollIntoView) e.target.scrollIntoView({block:'nearest'}); });
+  // Swipe up/down on the glasses: step to the row above/below in page order, so every note,
+  // line and list item gets a turn (the glasses' own guessing skipped things inside the scroll area).
+  const FOCUSABLE = 'button, a[href], input, [tabindex="0"]';
+  const lineOf = el => el.closest('.row, .tabs, .add, header, .bgmenu') || el;
+  document.addEventListener('keydown', e=>{
+    if (e.key!=='ArrowDown' && e.key!=='ArrowUp') return;
+    const all = [...app.querySelectorAll(FOCUSABLE)].filter(el=>!el.disabled && el.offsetParent!==null);
+    if (!all.length) return;
+    const cur = document.activeElement;
+    let i = all.indexOf(cur);
+    if (i<0){ e.preventDefault(); all[0].focus(); return; }
+    const myLine = lineOf(cur), dir = e.key==='ArrowDown' ? 1 : -1;
+    let j = i;
+    while (j>=0 && j<all.length && lineOf(all[j])===myLine) j+=dir;
+    if (j<0 || j>=all.length) return;          // already at the top or bottom
+    const line = lineOf(all[j]);
+    const members = all.filter(el=>lineOf(el)===line);
+    const pick = members.find(el=>el.getAttribute('aria-selected')==='true') || (dir>0 ? members[0] : members[0]);
+    e.preventDefault(); pick.focus();
+  }, true);
   window.addEventListener('popstate', ()=>{
     armed=null;
     if (stack.length > 1) stack.pop();
