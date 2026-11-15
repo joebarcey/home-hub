@@ -79,6 +79,8 @@
   .main.opened{border-color:var(--accent)}
   .rowacts{margin:-1vw 0 2.5vw 1em}
   .rowacts .main{font-size:.8em;padding:.35em .3em}
+  .ovhead{justify-content:space-between}
+  #ovw{padding:.45em .5em}
   .editbox{margin:0 0 2vw}
   .ediin{flex:1;min-width:0;background:var(--field);border:2px solid var(--accent);border-radius:14px;padding:.45em .7em}
   body.has-bg .ediin{background-color:rgba(0,0,0,.55)}
@@ -296,7 +298,7 @@
   }
 
   // Re-draw after new data arrives without yanking the cursor around.
-  const FOCUS_ATTRS=['data-rowopen','data-shopback','data-mgone','data-mrm','data-mback','data-stab','data-mtog','data-edit','data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  const FOCUS_ATTRS=['data-ovp','data-ovw','data-rowopen','data-shopback','data-mgone','data-mrm','data-mback','data-stab','data-mtog','data-edit','data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
   function refresh(){
     const a=document.activeElement;
     if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
@@ -340,8 +342,44 @@
       <h1>${title}</h1>${right?`<span class="sub">${right}</span>`:''}</header>`;
   }
   function wireBack(fallback){ const b=document.getElementById('back'); if(b) b.onclick=()=>goBack(fallback); }
-  function addBox(ph){
-    return `<div class="add"><input id="newi" type="text" placeholder="${esc(ph)}" aria-label="${esc(ph)}"><button id="addi">＋ Add</button></div>`;
+  function addBox(ph, overview){
+    return `<div class="add"><input id="newi" type="text" placeholder="${esc(ph)}" aria-label="${esc(ph)}"><button id="addi">＋ Add</button>${overview?`<button id="ovw" data-ovw="${overview}" aria-label="Overview">📋</button>`:''}</div>`;
+  }
+  function wireOverview(){ const b=document.getElementById('ovw'); if(b) b.onclick=()=>go('#/overview/'+b.dataset.ovw); }
+  // Everything on one page: highest priority first, then whatever has waited longest
+  // Everything on one page, grouped by priority (each group folds open/closed);
+  // inside a group, whatever has waited longest comes first
+  const ovOpen = new Set();
+  function renderOverview(which){
+    const isP = which==='projects';
+    const items = (isP ? live(data.projects) : live(data.honeydo).filter(i=>!i.done)).slice()
+      .sort((a,b)=>priOf(a)-priOf(b) || addedAt(a)-addedAt(b));
+    const rows = PRIS.map(pr=>{
+      const group = items.filter(it=>priOf(it)===pr);
+      if (!group.length) return '';
+      const key = which+':'+pr, open = ovOpen.has(key);
+      const oldest = daysBetween(addedAt(group[0]), now());
+      const head = `<div class="row"><button class="main ovhead" data-ovp="${key}" aria-expanded="${open}" style="color:${PRI_COLOR[pr]};border-color:${PRI_COLOR[pr]}">
+          <span><span style="display:inline-block;width:1.1em">${open?'▾':'▸'}</span>Priority ${pr}</span>
+          <span class="sub">${oldest>=30?'🕸 ':''}<span class="cnt">${group.length}</span></span></button></div>`;
+      if (!open) return head;
+      return head + group.map(it=>{
+        const d=daysBetween(addedAt(it), now());
+        let info = d===0 ? 'added today' : `on list ${d} day${d===1?'':'s'}`;
+        if (isP){ const g=progress(it); info += g.n ? ` · ${g.d}/${g.n} steps` : ''; }
+        else { const t=live(it.tasks); if (t.length) info += ` · ${t.filter(x=>x.done).length}/${t.length} tasks`; }
+        return `<div class="row" style="margin-left:1em"><button class="main block" ${isP?`data-open="${it.id}"`:`data-job="${it.id}"`} style="border-left:.35em solid ${PRI_COLOR[pr]}">
+          <span class="t">${esc(isP?it.name:it.text)}</span>
+          <span class="sub" style="display:block;${d>=30?'color:var(--warn)':''}">${d>=30?'🕸 ':''}${info}</span>${isP?`<div class="bar"><i style="width:${progress(it).pct}%"></i></div>`:''}</button></div>`;
+      }).join('');
+    }).join('');
+    app.innerHTML = header(`📋 ${isP?'Projects':'Honey-Do'}`, isP?'#/projects':'#/honeydo', `${items.length} open`) +
+      `<div class="scroll">${rows || `<div class="empty">Nothing open. Enjoy it.</div>`}</div>`;
+    wireBack(isP?'#/projects':'#/honeydo');
+    app.querySelectorAll('[data-ovp]').forEach(b=>b.onclick=()=>{ const k=b.dataset.ovp; ovOpen.has(k)?ovOpen.delete(k):ovOpen.add(k); render(); focusSel(`[data-ovp="${k}"]`); });
+    app.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>go(`#/p/${b.dataset.open}/goals`));
+    app.querySelectorAll('[data-job]').forEach(b=>b.onclick=()=>go(`#/job/${b.dataset.job}/tasks`));
+    if(!app.contains(document.activeElement)) focusFirst();
   }
   function wireAdd(onAdd){
     const inp=document.getElementById('newi'), btn=document.getElementById('addi');
@@ -519,13 +557,14 @@
           ? '<div class="empty">Nothing finished yet.<br>The couch is calling, isn\'t it.</div>'
           : `<div class="empty">Nothing at priority ${p}.<br>${p===1?'No fires today.':'Enjoy it while it lasts.'}</div>`)}
         ${showDone && doneCount ? `<div class="row"><button class="main small ${armed==='clear'?'danger':''}" id="clear" style="justify-content:center">${armed==='clear'?'Press again to clear all':'🗑 Clear all completed'}</button></div>` : ''}
-      </div>` + (showDone ? '' : addBox(`Add a priority ${p} job`));
+      </div>` + (showDone ? '' : addBox(`Add a priority ${p} job`, sec.id));
     const doneItems = showDone ? items : [];
     wireBack('#/');
     wireChecklist(()=>data[sec.id]);
     app.querySelectorAll('[data-ptab]').forEach(b=>b.onclick=()=>{ priOpen=null; go(`#/${sec.id}/${b.dataset.ptab}`, true); focusSel(`[data-ptab="${b.dataset.ptab}"]`); });
     wirePriPicker(arr);
     app.querySelectorAll('[data-job]').forEach(b=>b.onclick=()=>{ priOpen=null; go(`#/job/${b.dataset.job}/tasks`); });
+    wireOverview();
     const clr=document.getElementById('clear');
     if(clr) clr.onclick=()=>{
       if(armed==='clear'){ doneItems.forEach(remove); armed=null; save(); render(); focusFirst(); }
@@ -694,8 +733,8 @@
     }).join('');
     app.innerHTML = header('🛠 Projects', '#/', `${all.length} total`) +
       priTabs(n=>all.filter(p=>priOf(p)===n).length, pri) +
-      `<div class="scroll">${rows || `<div class="empty">No priority ${pri} projects.<br>${pri===1?'Nothing on fire. Nice.':'Add one below.'}</div>`}</div>` + addBox(`New priority ${pri} project`);
-    wireBack('#/');
+      `<div class="scroll">${rows || `<div class="empty">No priority ${pri} projects.<br>${pri===1?'Nothing on fire. Nice.':'Add one below.'}</div>`}</div>` + addBox(`New priority ${pri} project`, 'projects');
+    wireBack('#/'); wireOverview();
     app.querySelectorAll('[data-ptab]').forEach(b=>b.onclick=()=>{ priOpen=null; go(`#/projects/${b.dataset.ptab}`, true); focusSel(`[data-ptab="${b.dataset.ptab}"]`); });
     app.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{ priOpen=null; go(`#/p/${b.dataset.open}/goals`); });
     wirePriPicker(data.projects);
@@ -1099,7 +1138,7 @@
   const IS_PHONE = (()=>{ try { return innerHeight > innerWidth*1.2 && matchMedia('(pointer: coarse)').matches; } catch(e){ return false; } })();
   const BG_KEY = 'mrbd-home-hub-bg-';
   let bgMenu = false;
-  function pageKey(){ const a = route().a; return a==='' ? 'home' : a==='p' ? 'projects' : a==='note' ? 'notes' : a==='job' ? 'honeydo' : a==='contact' ? 'contacts' : a; }
+  function pageKey(){ const a = route().a; return a==='' ? 'home' : a==='p' ? 'projects' : a==='note' ? 'notes' : a==='job' ? 'honeydo' : a==='overview' ? (route().b==='projects'?'projects':'honeydo') : a==='contact' ? 'contacts' : a; }
   function getBg(k){ try { return localStorage.getItem(BG_KEY+k) || ''; } catch(e){ return ''; } }
   function applyBg(){
     const url = IS_PHONE ? getBg(pageKey()) : '';
@@ -1152,6 +1191,7 @@
     const r=route();
     const sec=SECTIONS.find(s=>s.id===r.a);
     if (r.a==='p' && r.b) renderProject(r.b, r.c);
+    else if (r.a==='overview') renderOverview(r.b);
     else if (r.a==='projects') renderProjects(r.b);
     else if (r.a==='job' && r.b) renderJob(r.b, r.c);
     else if (r.a==='notes') renderNotes(r.b);
