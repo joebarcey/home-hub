@@ -81,6 +81,7 @@
   .rowacts{margin:-1vw 0 2.5vw 1em}
   .rowacts .main{font-size:.8em;padding:.35em .3em}
   .rowacts .main{white-space:nowrap;flex:1 1 auto} .rowacts [data-edit], .rowacts [data-del]{flex:0 1 2.6em}
+  body:not(.light) .rowacts [data-edit], body:not(.light) .rowacts [data-del]{flex:1 1 auto}
   .ovhead{justify-content:space-between}
   #ovw{padding:.45em .5em}
   header h1.tapme{cursor:pointer}
@@ -465,8 +466,8 @@
   }
   // Phone, inside projects and jobs: tap an entry to show its options (done / edit / delete) under it
   let openRow = null;
-  function checklistRows(arr, editable, onhand){
-    if (editable && LIGHT) return live(arr).map(it=>{
+  function checklistRows(arr, editable, onhand, tap){
+    if (editable && (LIGHT || tap)) return live(arr).map(it=>{
       if (editItem===it.id) return editRow(it.text);
       const off = onhand && it.noshop && !it.done, open = openRow===it.id;
       return `<div class="row ${it.done?(onhand?'done onhand':'done'):''}">
@@ -491,7 +492,7 @@
     app.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ editItem=b.dataset.edit; openRow=null; armed=null; render(); });
     if (editItem && editItem!=='pname' && editItem!=='jname'){
       const it=getArr().find(i=>i.id===editItem);
-      if (it) wireEdit(v=>{ it.text=v; touch(it); }, LIGHT ? `[data-rowopen="${it.id}"]` : `[data-toggle="${it.id}"]`);
+      if (it) wireEdit(v=>{ it.text=v; touch(it); }, `[data-rowopen="${it.id}"],[data-toggle="${it.id}"]`);
     }
     app.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{
       const it=getArr().find(i=>i.id===b.dataset.toggle); it.done=!it.done;
@@ -591,7 +592,7 @@
           <span class="sub" style="flex:0 0 auto">took ${Math.max(1, daysBetween(addedAt(it), it.doneAt||it.u||now()) )}d <span style="color:${PRI_COLOR[priOf(it)]}">P${priOf(it)}</span></span>
         </button>
         <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
-      </div>` : editItem===it.id ? editRow(it.text, 'Job name') : LIGHT ? `
+      </div>` : editItem===it.id ? editRow(it.text, 'Job name') : (LIGHT || sec.id==='honeydo') ? `
       <div class="row hdrow">
         <button class="main block${openRow===it.id?' opened':''}" data-rowopen="${it.id}" aria-expanded="${openRow===it.id}"><span class="t">${esc(it.text)}</span><div class="sub" style="display:flex;gap:.6em;align-items:center">${ageBadge(it)}${jobInfo(it)}<span style="margin-left:auto;color:${PRI_COLOR[p]}">P${p}</span></div></button>
       </div>${openRow===it.id?`<div class="row rowacts">
@@ -665,7 +666,7 @@
       <div class="tabs" role="tablist">${JOB_TABS.map(t=>{ const c=live(j[t.id]).length; return `<button role="tab" data-jtab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`; }).join('')}</div>
       <div class="scroll">
         ${tab.id==='materials' && live(j.materials).length ? `<div class="sub" style="margin:0 0 2vw .3em">${matLeft?`Check off what you've got. ${matLeft} still to get.`:'Got everything. No excuses now.'}</div>`:''}
-        ${checklistRows(j[tab.id], true, tab.id==='materials') || `<div class="empty">${tab.id==='tasks'?'No tasks yet.<br>Break it into steps below.':'No materials yet.<br>Add what you need to buy or grab.'}</div>`}
+        ${checklistRows(j[tab.id], true, tab.id==='materials', true) || `<div class="empty">${tab.id==='tasks'?'No tasks yet.<br>Break it into steps below.':'No materials yet.<br>Add what you need to buy or grab.'}</div>`}
         ${LIGHT && !showMgmt && editItem!=='jname' ? '' : `${editItem==='jname' ? editRow(j.text, 'Job name') : `<div class="row"><button class="main small" id="renj" style="justify-content:center">✏️ Rename job</button></div>`}
         <div class="row"><button class="main small" id="jobdone" style="justify-content:center;color:var(--good)">${j.done?'↩ Put job back on the list':'✔ Mark whole job done'}</button></div>`}
       </div>` + addBox(tab.ph);
