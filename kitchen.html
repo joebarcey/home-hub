@@ -35,10 +35,21 @@
   button,input,textarea{font:inherit;color:inherit}
   #app{min-height:100%;display:flex;flex-direction:column;
     padding:calc(env(safe-area-inset-top,0px) + 12px) max(16px, env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 88px) max(16px, env(safe-area-inset-left,0px))}
-  header{display:flex;align-items:baseline;gap:12px;margin:6px 0 14px}
+  header{display:flex;align-items:baseline;gap:12px;margin:6px 0 14px;min-height:2.2rem}
   h1{font:700 1.75rem/1.1 var(--display);margin:0;flex:1;letter-spacing:-.01em;text-wrap:balance}
   .sync{font-size:.8rem;color:var(--muted);white-space:nowrap}
-  .sync{border:0;background:none;padding:0;font:inherit;font-size:.8rem;cursor:default}
+  .sync{border:0;background:none;padding:0;font:inherit;font-size:.8rem;cursor:default;min-width:6.2em;text-align:right}
+  .news{display:flex;gap:10px;align-items:center;background:#fff4c2;color:#3a2f00;border:1.5px solid #e0a400;border-radius:14px;padding:10px 12px;margin:-4px 0 12px}
+  .news > div{flex:1} .news .btn{flex:0 0 auto}
+  .hdform textarea{width:100%;margin-top:8px;border:1.5px solid var(--line);border-radius:12px;padding:10px;background:var(--card);resize:vertical}
+  body.has-bg .hdform textarea{background-color:var(--glass)}
+  .hdnote{display:block;margin-top:4px;padding:4px 8px;border-left:3px solid var(--accent);background:rgba(0,0,0,.04);border-radius:6px;font-size:.95rem;color:var(--ink);white-space:pre-wrap}
+  @media (prefers-color-scheme: dark){ .hdnote{background:rgba(255,255,255,.07)} }
+  /* Joe's items from Home Hub */
+  .row.joe .text{color:#e0a400}
+  @media (prefers-color-scheme: dark){ .row.joe .text{color:#ffd54a} }
+  .row.joe.done .text{opacity:.75}
+  .tag.joetag{background:#ffd54a;color:#3a2f00}
   .sync.none{color:var(--accent);text-decoration:underline;cursor:pointer}
   .connect{background:var(--card);border:1.5px solid var(--accent);border-radius:16px;padding:14px;margin-bottom:14px}
   .sync.ok{color:var(--accent)} .sync.off{color:var(--warn)}
@@ -158,13 +169,14 @@
   }
   const SYNC_URL = findSyncUrl();
 
-  const LISTS = ['todo','groceries','shopping','recipes'];
+  const LISTS = ['todo','groceries','shopping','recipes','honeydo'];
   const TABS = [
     {id:'todo',      ic:'✓',  label:'To-Do'},
     {id:'groceries', ic:'🥕', label:'Weekly Shopping'},
     {id:'shopping',  ic:'🛍', label:'Desires & Needs'},
     {id:'meals',     ic:'🍽', label:'Meals'},
-    {id:'recipes',   ic:'📖', label:'Recipes'}
+    {id:'recipes',   ic:'📖', label:'Recipes'},
+    {id:'honeydo',   ic:'🔨', label:'Honey-Do'}
   ];
 
   const app = document.getElementById('app'), nav = document.getElementById('nav');
@@ -393,11 +405,46 @@
   let syncing=false, again=false, timer=null, status=SYNC_URL?'':'none', last=0;
   function scheduleSync(){ if(!SYNC_URL) return; clearTimeout(timer); timer=setTimeout(sync, 700); }
   function statusText(){
-    return status==='ok' ? 'Synced ' + new Date(last).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})
-      : status==='off' ? 'Offline, saved on phone' : status==='busy' ? 'Syncing…' : status==='none' ? 'This phone only · Connect' : '';
+    // While syncing, keep showing the last time so the header never changes size
+    return (status==='ok' || (status==='busy' && last)) ? 'Synced ' + new Date(last).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})
+      : status==='off' ? 'Offline · saved' : status==='busy' ? 'Syncing…' : status==='none' ? 'This phone only · Connect' : '';
   }
   function showStatus(){ const el=document.getElementById('sync'); if(el){ el.className='sync '+status; el.textContent=statusText(); } }
   function setStatus(s){ status=s; showStatus(); }
+  // Joe's Home Hub "Household" list: Groceries come here to Weekly Shopping, Needs and Desires to
+  // Desires & Needs, shown in yellow. Checking one off or deleting it here goes back to his list; when he checks one off, it comes off here.
+  // This app only reads Home Hub; Home Hub reads the check-offs from here.
+  function pullHome(){
+    return fetch(SYNC_URL + '?action=get&t=' + now(), {cache:'no-store'}).then(r=>r.ok ? r.json() : null).then(hh=>{
+      if (!hh) return;
+      // Her Honey-Do requests: when Joe finishes one, tell her and take it off; if he deletes it, it goes too
+      const jobs = new Map((hh.honeydo||[]).map(j=>[j.id, j]));
+      data.honeydo.forEach(m=>{
+        if (m.del) return;
+        const j = jobs.get('kb-' + m.id); if (!j || (j.u||0) <= (m.u||0)) return;
+        if (j.del){ m.del = true; m.u = j.u; return; }
+        if (!!j.done !== !!m.done){ m.done = !!j.done; if (m.done) m.news = true; else delete m.news; m.u = j.u; }
+      });
+      if (!Array.isArray(hh.shopping)) return;
+      hh.shopping.forEach(y=>{
+        if (!y || !y.id) return;
+        const cat = ['groc','need','desire'].includes(y.cat) ? y.cat : 'need';
+        const want = cat==='groc' ? 'groceries' : 'shopping', id = 'hh-' + y.id;
+        ['groceries','shopping'].forEach(k=>{
+          const x = data[k].find(i=>i.id===id);
+          const gone = !!y.del || k!==want || !!y.done;   // checked off in Home Hub: off her list (her own check-offs come back with the same time, so they stay)
+          if (!x){
+            if (!gone) data[k].push({id, text:y.text, done:!!y.done, by:'joe', kind:cat, manual:true, manualText:y.text, from:[], c:y.c||now(), u:y.u||now()});
+            return;
+          }
+          if ((y.u||0) > (x.u||0)){
+            Object.assign(x, {text:y.text, manualText:y.text, manual:true, done:!!y.done, by:'joe', kind:cat, u:y.u||now()});
+            if (gone) x.del = true; else delete x.del;
+          }
+        });
+      });
+    }).catch(()=>{});
+  }
   async function sync(){
     if (!SYNC_URL) return;
     if (syncing){ again=true; return; }
@@ -408,6 +455,7 @@
       const remote = await r.json();
       const before = fingerprint(data);
       mergeInto(data, remote);
+      await pullHome();
       store();
       if (dirty || fingerprint(data) !== fingerprint(remote||{})){
         setDirty(false);
@@ -422,10 +470,17 @@
     syncing=false;
     if (again){ again=false; sync(); }
   }
+  // New data from the other phone: wait until hands are off the screen, then redraw in place (same scroll spot)
+  let lastTouch = 0, refreshWait = null;
+  ['pointerdown','touchstart','scroll','keydown'].forEach(ev=>window.addEventListener(ev, ()=>{ lastTouch = now(); }, {passive:true, capture:true}));
   function refresh(){
+    clearTimeout(refreshWait);
     const a = document.activeElement;
-    if (a && (a.tagName==='INPUT' || a.tagName==='TEXTAREA')) return;   // don't interrupt typing
+    if (a && (a.tagName==='INPUT' || a.tagName==='TEXTAREA')) { refreshWait = setTimeout(refresh, 1500); return; }   // don't interrupt typing
+    if (now() - lastTouch < 2500 || armed || picked) { refreshWait = setTimeout(refresh, 1000); return; }   // someone is using it
+    const y = window.scrollY;
     render();
+    window.scrollTo(0, y);
   }
 
   // ---------- view state ----------
@@ -489,6 +544,7 @@
     save();
   }
 
+  // Items Joe adds from Home Hub show in yellow.
   function renderChecklist(key, title, ph, emptyMsg){
     const movable = key==='groceries';
     const items = live(data[key]).sort((a,b)=> (a.done-b.done) || (pos(a)-pos(b)));
@@ -507,9 +563,11 @@
         tags = (sum.times>1 ? `<span class="times" aria-label="needed ${sum.times} times">×${sum.times}</span>` : '') +
           meals.map(r=>`<span class="tag">${esc(r.name)}</span>`).join('');
       }
+      if (key==='shopping' && it.by==='joe' && it.kind) tags += `<span class="tag joetag">${it.kind==='desire'?'Desire':'Need'}</span>`;
+      const joe = it.by==='joe' ? ' joe' : '';
       if (movable){
         const idx = items.indexOf(it), isPicked = picked===it.id && !it.done;
-        return `<div class="row ${it.done?'done':''} ${isPicked?'picked':''}">
+        return `<div class="row ${it.done?'done':''} ${isPicked?'picked':''}${joe}">
           <button class="checkbtn" data-toggle="${it.id}" aria-pressed="${!!it.done}" aria-label="${it.done?'Uncheck':'Check off'} ${esc(it.text)}"><span class="check" aria-hidden="true">✓</span></button>
           <button class="item pickable" data-pick="${it.id}" ${it.done?'disabled':''} aria-expanded="${isPicked}" aria-label="${esc(label)}, tap to move"><span class="text">${esc(label)}${tags}</span></button>
           <button class="x ${armed===it.id?'armed':''}" data-del="${it.id}" aria-label="Delete ${esc(label)}">${armed===it.id?'Delete?':'✕'}</button>
@@ -520,7 +578,7 @@
             <button class="mv" data-move="bottom" ${idx>=openCount-1?'disabled':''}>⤓ Bottom</button>
           </div>` : '');
       }
-      return `<div class="row ${it.done?'done':''}">
+      return `<div class="row ${it.done?'done':''}${joe}">
         <button class="item" data-toggle="${it.id}" aria-pressed="${!!it.done}"><span class="check" aria-hidden="true">✓</span><span class="text">${esc(it.text)}${tags}</span></button>
         <button class="x ${armed===it.id?'armed':''}" data-del="${it.id}" aria-label="Delete ${esc(it.text)}">${armed===it.id?'Delete?':'✕'}</button>
       </div>`;
@@ -716,7 +774,7 @@
     const openT = live(data.todo).filter(g=>!g.done).length;
     const openS = live(data.shopping).filter(g=>!g.done).length;
     const onM = live(data.recipes).filter(r=>r.on).length;
-    const counts = {todo:openT, groceries:openG, shopping:openS, meals:onM};
+    const counts = {todo:openT, groceries:openG, shopping:openS, meals:onM, honeydo:live(data.honeydo).filter(m=>!m.done).length};
     nav.innerHTML = TABS.map(t=>`<button class="tab" data-tab="${t.id}" ${t.id===tab?'aria-current="page"':''}><span class="ic" aria-hidden="true">${t.ic}</span><span class="lbl">${t.label}</span>${counts[t.id]?`<span class="badge">${counts[t.id]}</span>`:''}</button>`).join('');
     nav.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>go(b.dataset.tab));
   }
@@ -771,10 +829,55 @@
     else if (tab==='groceries') renderChecklist('groceries','Weekly Shopping','Add an item','The list is empty.<br>Add items here, or turn on a meal in Meals.');
     else if (tab==='shopping') renderChecklist('shopping','Desires & Needs','Add a desire or need','Nothing here yet.<br>Add things you want or need to buy.');
     else if (tab==='meals') renderMeals();
+    else if (tab==='honeydo') renderHoneyDo();
     else renderRecipes();
     if (connectOpen && status==='none'){ const h=app.querySelector('header'); if (h){ h.insertAdjacentHTML('afterend', connectPanel()); wireConnect(); } }
     applyBg(); addBgButton();
+    showNews();
     renderNav(); showStatus();
+  }
+  function showNews(){
+    const news = live(data.honeydo).filter(m=>m.done && m.news);
+    if (!news.length) return;
+    const h = app.querySelector('header'); if (!h) return;
+    h.insertAdjacentHTML('afterend', `<div class="news" role="status"><div><b>✔ Joe finished ${news.length>1?news.length+' Honey-Do jobs':'a Honey-Do job'}</b>
+      ${news.map(m=>`<div class="sub" style="color:inherit">${esc(m.text)}</div>`).join('')}</div><button class="btn" id="newsok" type="button">OK</button></div>`);
+    document.getElementById('newsok').onclick = () => { news.forEach(m=>{ delete m.news; }); store(); render(); };
+  }
+
+  // ---------- Honey-Do: her requests go to Joe's Home Hub at priority 5 ----------
+  let hdNote = false;
+  function renderHoneyDo(){
+    const open = live(data.honeydo).filter(m=>!m.done).sort((a,b)=>(b.c||0)-(a.c||0));
+    const rows = open.map(m=>`<div class="row">
+        <button class="checkbtn" data-hdone="${m.id}" aria-label="Mark ${esc(m.text)} done"><span class="check" aria-hidden="true">✓</span></button>
+        <div class="item" style="cursor:default"><span class="text">${esc(m.text)}${m.note?`<span class="hdnote">${esc(m.note)}</span>`:''}</span></div>
+        <button class="x ${armed===m.id?'armed':''}" data-hdel="${m.id}" aria-label="Take back ${esc(m.text)}">${armed===m.id?'Remove?':'✕'}</button>
+      </div>`).join('');
+    app.innerHTML = header('Honey-Do') + `<form class="hdform" data-hdadd>
+        <div class="addrow" style="margin:0"><input id="newi" type="text" placeholder="What needs doing?" aria-label="What needs doing" autocomplete="off" enterkeyhint="${hdNote?'next':'done'}"><button class="btn" type="submit">Add</button></div>
+        ${hdNote ? `<textarea id="hdnote" rows="2" placeholder="Details for Joe (optional)" aria-label="Details for Joe"></textarea>` : `<button type="button" class="backlink" id="hdnotebtn">+ Add details</button>`}
+      </form>
+      <p class="sub" style="margin:2px 4px 10px">These go on Joe's Honey-Do list. When he finishes one, you'll get a heads-up here and it comes off.</p>` +
+      (rows ? `<div class="section">Waiting on Joe · ${open.length}</div><div class="list">${rows}</div>` : `<div class="empty">Nothing waiting on Joe.<br>Enjoy it while it lasts.</div>`);
+    const f = app.querySelector('[data-hdadd]');
+    f.addEventListener('submit', e=>{
+      e.preventDefault();
+      const i = document.getElementById('newi'), t = i.value.trim(); if (!t){ i.focus(); return; }
+      const n = document.getElementById('hdnote'), note = n ? n.value.trim() : '';
+      data.honeydo.push({id:uid(), text:t, note, done:false, c:now(), u:now()});
+      hdNote = false; save(); render(); toast("Sent to Joe's Honey-Do list");
+    });
+    const nb = document.getElementById('hdnotebtn'); if (nb) nb.onclick = () => { const v=document.getElementById('newi').value; hdNote = true; render(); const i=document.getElementById('newi'); i.value=v; document.getElementById('hdnote').focus(); };
+    app.querySelectorAll('[data-hdone]').forEach(b=>b.onclick=()=>{
+      const m = data.honeydo.find(x=>x.id===b.dataset.hdone); m.done = true; touch(m); armed=null; save(); render(); toast('Marked done. Off Joe\'s list too.');
+    });
+    app.querySelectorAll('[data-hdel]').forEach(b=>b.onclick=()=>{
+      const id=b.dataset.hdel;
+      if (armed===id){ remove(data.honeydo.find(x=>x.id===id)); armed=null; save(); toast("Taken off Joe's list"); }
+      else armed=id;
+      render();
+    });
   }
 
   // Tapping anywhere outside the item and its move buttons closes them.

@@ -132,6 +132,11 @@
   body.light .row:has(> .main):has(> .x ~ .x) > .x{flex:1 1 0;min-width:0;padding:.3em .2em;font-size:.85em}
   body.light .row .t, body.light .hdrow .t{white-space:normal;overflow:visible;display:block;-webkit-line-clamp:unset;line-height:1.25}
   body.light .gtabs button{font-size:.6em;padding:.35em .05em} body.light .gtabs .cnt{margin-left:.1em}
+  .mnote{margin:0 0 2.5vw;padding:2.5vw 3.5vw;border:2px solid #e0a400;border-left-width:7px;border-radius:12px;background:rgba(58,46,0,.92)}
+  body.light .mnote{background:rgba(255,246,205,.95)}
+  .mnote-h{font-size:.8em;font-weight:800;color:#a87600;letter-spacing:.02em}
+  .mnote-t{font-size:1.15em;font-weight:700;line-height:1.3;margin-top:.5vw;white-space:pre-wrap}
+  body:not(.light) .mnote-h{color:#ffd54a} body:not(.light) .mnote-t{color:#fff}
 </style>
 </head>
 <body>
@@ -275,6 +280,40 @@
       : syncStatus==='off' ? '☁ offline' : syncStatus==='busy' ? '☁ syncing…' : syncStatus==='none' ? 'this device only' : '';
   }
   function setStatus(s){ syncStatus=s; showStatus(); }
+  // Household items go to the Kitchen Board (it reads them from here). When Melissa checks one off or
+  // deletes it there, bring that back. Each app only writes its own lists, so nothing gets overwritten.
+  async function pullKitchen(){
+    try {
+      const r = await fetch(SYNC_URL + (SYNC_URL.includes('?')?'&':'?') + 'action=get&space=kitchen&t=' + now(), {cache:'no-store'});
+      if (!r.ok) return;
+      const k = await r.json() || {};
+      // Melissa's Honey-Do requests from the Kitchen app: they land at priority 5 in Joe's format
+      (k.honeydo||[]).forEach(m=>{
+        if (!m || !m.id) return;
+        const id = 'kb-' + m.id; const j = data.honeydo.find(x=>x.id===id);
+        if (!j){
+          if (m.del || m.done) return;
+          data.honeydo.push({id, text:m.text, note:m.note||'', from:'melissa', pri:5, done:false, tasks:[], materials:[], c:m.c||now(), u:m.u||now()});
+          setDirty(true); return;
+        }
+        if ((m.u||0) > (j.u||0)){
+          if (m.del) j.del = true;
+          else if (!!m.done !== !!j.done){ j.done = !!m.done; if (j.done) j.doneAt = m.u; else delete j.doneAt; }
+          j.u = m.u; setDirty(true);
+        }
+      });
+      (data.shopping||[]).forEach(i=>{
+        if (i.del) return;
+        const lst = (i.cat==='groc') ? k.groceries : k.shopping;
+        const m = (lst||[]).find(x=>x.id==='hh-'+i.id);
+        if (m && (m.u||0) > (i.u||0)){
+          i.done = !!m.done; if (m.done) i.doneAt = i.doneAt || m.u; else delete i.doneAt;
+          if (m.del) i.del = true;
+          i.u = m.u; setDirty(true);
+        }
+      });
+    } catch(e){}
+  }
   async function sync(){
     if (!SYNC_URL) return;
     if (syncing){ again=true; return; }
@@ -285,6 +324,7 @@
       const remote = await r.json();
       const before = JSON.stringify(data);
       mergeInto(data, remote || {});
+      await pullKitchen();
       store();
       const remoteNorm = mergeData(remote||{}, {});
       if (dirty || JSON.stringify(mergeData(remoteNorm, data)) !== JSON.stringify(remoteNorm)){
@@ -302,7 +342,7 @@
   }
 
   // Re-draw after new data arrives without yanking the cursor around.
-  const FOCUS_ATTRS=['data-gtog','data-grm','data-sopen','data-sgo','data-ovp','data-ovw','data-rowopen','data-shopback','data-mgone','data-mrm','data-mback','data-stab','data-mtog','data-edit','data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  const FOCUS_ATTRS=['data-hcat','data-scat','data-gtog','data-grm','data-sopen','data-sgo','data-ovp','data-ovw','data-rowopen','data-shopback','data-mgone','data-mrm','data-mback','data-stab','data-mtog','data-edit','data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
   function refresh(){
     const a=document.activeElement;
     if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
@@ -605,8 +645,9 @@
   ];
   function jobInfo(it){
     const t=live(it.tasks), m=live(it.materials);
-    if (!t.length && !m.length) return '';
     const parts=[];
+    if (it.from==='melissa') parts.push('💬 from Melissa');
+    if (!t.length && !m.length && !parts.length) return '';
     if (t.length) parts.push(`${t.filter(x=>x.done).length}/${t.length} tasks`);
     if (m.length) parts.push(`${m.length} mat.`);
     return `<span>${parts.join(' · ')}</span>`;
@@ -620,6 +661,7 @@
     const matLeft=live(j.materials).filter(x=>!x.done).length;
     app.innerHTML = header(esc(j.text), '#/honeydo', `<span style="color:${PRI_COLOR[pr]}">P${pr}</span>${ts.length?' · '+pct+'%':''}`) + `
       ${ts.length?`<div class="bar" style="margin:0 0 2vw"><i style="width:${pct}%"></i></div>`:''}
+      ${j.from==='melissa' ? `<div class="mnote"><div class="mnote-h">💬 From Melissa${j.note?'':' · no details added'}</div>${j.note?`<div class="mnote-t">${esc(j.note)}</div>`:''}</div>` : ''}
       <div class="tabs" role="tablist">${JOB_TABS.map(t=>{ const c=live(j[t.id]).length; return `<button role="tab" data-jtab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`; }).join('')}</div>
       <div class="scroll">
         ${tab.id==='materials' && live(j.materials).length ? `<div class="sub" style="margin:0 0 2vw .3em">${matLeft?`Check off what you've got. ${matLeft} still to get.`:'Got everything. No excuses now.'}</div>`:''}
@@ -652,19 +694,23 @@
   // Shopping opens to three tabs: Projects, Honey-Do (materials pulled in automatically) and Other (your own list).
   // Shopping: All / Projects / Honey-Do / Other. Each list is flat, sorted by priority then A–Z.
   // Tap an item to see where it's from and what you can do with it.
-  let showOnHand = false, shopOpen = null;
+  let showOnHand = false, shopOpen = null, hcat = 'groc';
+  try { const v = localStorage.getItem('mrbd-home-hub-hcat'); if (['groc','need','desire'].includes(v)) hcat = v; } catch(e){}
   function renderShopping(sec){
     const arr = data[sec.id], linked = linkedMaterials().filter(x=>!x.m.noshop);
     const own = live(arr);
     const abc = (a,b)=>a.text.localeCompare(b.text, undefined, {sensitivity:'base'});
     const mats = linked.map(x=>({kind:'mat', rk:'m:'+x.key, key:x.key, text:x.m.text, pri:x.pri, from:x.from, src:x.key[0], done:!!x.m.done}));
-    const mine = own.map(i=>({kind:'own', rk:'o:'+i.id, id:i.id, text:i.text, pri:9, done:!!i.done}));
+    const HC = [{id:'groc', label:'Groceries'}, {id:'need', label:'Needs'}, {id:'desire', label:'Desires'}];
+    const catOfItem = i => HC.some(c=>c.id===i.cat) ? i.cat : 'need';   // older items count as Needs
+    const mineAll = own.map(i=>({kind:'own', rk:'o:'+i.id, id:i.id, text:i.text, pri:9, done:!!i.done, cat:catOfItem(i)}));
+    const mine = mineAll;
     const need = l => l.filter(x=>!x.done).length;
     const fromP = mats.filter(x=>x.src==='p'), fromH = mats.filter(x=>x.src==='h');
     const counts = { all: need(mats)+need(mine), projects: need(fromP), honeydo: need(fromH), other: need(mine) };
-    const TABS = [{id:'all', label:'All'}, {id:'projects', label:'Projects'}, {id:'honeydo', label:'Honey-Do'}, {id:'other', label:'Other'}];
+    const TABS = [{id:'all', label:'All'}, {id:'projects', label:'Projects'}, {id:'honeydo', label:'Honey-Do'}, {id:'other', label:'Household'}];
     let tab = route().b; if (!TABS.some(t=>t.id===tab)) tab = 'all';
-    let list = tab==='all' ? mats.concat(mine) : tab==='projects' ? fromP : tab==='honeydo' ? fromH : mine;
+    let list = tab==='all' ? mats.concat(mine) : tab==='projects' ? fromP : tab==='honeydo' ? fromH : mine.filter(x=>x.cat===hcat);
     const hiddenDone = tab==='projects' && !showOnHand ? list.filter(x=>x.done).length : 0;
     if (tab==='all' || tab==='honeydo' || (tab==='projects' && !showOnHand)) list = list.filter(x=>!x.done);
     // identical names (ignoring case and extra spaces) are combined into one line with ×2, ×3…
@@ -684,7 +730,8 @@
       if (open) {
         acts = `<div class="row rowacts" style="flex-direction:column;gap:1vw">` + g.members.map(m=> m.kind==='mat'
             ? `<button class="main" data-sgo="${m.key}" style="justify-content:flex-start;color:${PRI_COLOR[m.pri]}">P${m.pri} · ${esc(m.from)} ›${m.done?' <span class="sub">(on hand)</span>':''}</button>`
-            : `<div class="main sub" style="justify-content:flex-start">🛒 Other list${m.done?' (got it)':''}</div>`).join('') + `</div>
+            : `<div class="main sub" style="justify-content:flex-start">🛒 Household · ${HC.find(c=>c.id===m.cat).label}${m.cat==='groc'?' (on Kitchen Groceries)':' (on Kitchen Desires &amp; Needs)'}${m.done?' · got it':''}</div>`).join('') + `</div>`
+          + (g.kind==='own' && n===1 ? `<div class="row rowacts">${HC.map(c=>`<button class="main small" data-scat="${g.members[0].id}|${c.id}" ${c.id===g.members[0].cat?'disabled':''} style="justify-content:center">${c.id===g.members[0].cat?'• ':'→ '}${c.label}</button>`).join('')}</div>` : '') + `
           <div class="row rowacts">
             <button class="main" data-gtog="${g.rk}" style="justify-content:center;color:var(--good)">${g.done?'↩ Undo':'✔ Got it'}${n>1?' (all '+n+')':''}</button>
             <button class="main ${armed==='g'+g.rk?'danger':''}" data-grm="${g.rk}" style="justify-content:center">${armed==='g'+g.rk?'Sure?':(g.kind==='own'?'🗑 Delete':'✕ Off list')}${n>1&&armed!=='g'+g.rk?' (all)':''}</button></div>`;
@@ -694,17 +741,26 @@
     };
     let body = list.map(row).join('');
     if (!body) body = `<div class="empty">${tab==='other'||tab==='all' ? 'Nothing on the list.<br>Add something below.' : 'Nothing to get here. 👍'}</div>`;
+    const catTabs = tab==='other' ? `<div class="tabs stabs ctabs" role="tablist">${HC.map(c=>{ const n=need(mine.filter(x=>x.cat===c.id));
+      return `<button role="tab" data-hcat="${c.id}" aria-selected="${c.id===hcat}">${c.label}<span class="cnt${n?'':' zero'}">${n}</span></button>`; }).join('')}</div>
+      <div class="sub" style="margin:0 1vw 1vw">${hcat==='groc' ? 'These go on Melissa’s Kitchen Groceries list.' : 'These go on Melissa’s Kitchen Desires &amp; Needs list.'}</div>` : '';
     if (tab==='projects' && (hiddenDone || showOnHand) && fromP.some(x=>x.done)) body += `<div class="row"><button class="main small" id="onhand" style="justify-content:center;color:var(--good)">${showOnHand?'Hide':'Show'} ${fromP.filter(x=>x.done).length} on hand</button></div>`;
-    const doneOwn = own.filter(i=>i.done);
+    const doneOwn = own.filter(i=>i.done && (tab!=='other' || catOfItem(i)===hcat));
     if (tab==='other' && doneOwn.length) body += `<div class="row"><button class="main small ${armed==='clear'?'danger':''}" id="clear" style="justify-content:center">${armed==='clear'?'Press again to clear':'Clear '+doneOwn.length+' done'}</button></div>`;
-    app.innerHTML = header(`${sec.icon} ${sec.label}`, '#/', `${counts.all} to get`) +
-      `<div class="tabs stabs" role="tablist">${TABS.map(t=>`<button role="tab" data-stab="${t.id}" aria-selected="${t.id===tab}">${t.label}<span class="cnt${counts[t.id]?'':' zero'}">${counts[t.id]}</span></button>`).join('')}</div>
-      <div class="scroll">${body}</div>` + (tab==='other' || tab==='all' ? addBox(sec.ph) : '');
-    wireBack('#/');
+    const HH = tab==='other';   // Household is its own page: just Groceries, Needs, Desires
+    app.innerHTML = (HH ? header('🏠 Household', '#/shopping/all', `${counts.other} to get`) : header(`${sec.icon} ${sec.label}`, '#/', `${counts.all} to get`)) +
+      (HH ? '' : `<div class="tabs stabs" role="tablist">${TABS.map(t=>`<button role="tab" data-stab="${t.id}" aria-selected="${t.id===tab}">${t.label}<span class="cnt${counts[t.id]?'':' zero'}">${counts[t.id]}</span></button>`).join('')}</div>`) + `
+      ${catTabs}<div class="scroll">${body}</div>` + (tab==='other' || tab==='all' ? addBox(tab==='other' ? 'Add to ' + HC.find(c=>c.id===hcat).label : sec.ph) : '');
+    wireBack(HH ? '#/shopping/all' : '#/');
     const findMat = key => { const [src,pid,mid]=key.split('|'); const parent=(src==='h'?data.honeydo:data.projects).find(x=>x.id===pid); return parent && (parent.materials||[]).find(x=>x.id===mid); };
     app.querySelectorAll('[data-stab]').forEach(b=>b.onclick=()=>{ shopOpen=null; go(`#/shopping/${b.dataset.stab}`, true); focusSel(`[data-stab="${b.dataset.stab}"]`); });
     app.querySelectorAll('[data-sopen]').forEach(b=>b.onclick=()=>{ const k=b.dataset.sopen; shopOpen = shopOpen===k ? null : k; armed=null; render(); focusSel(`[data-sopen="${k}"]`); });
     app.querySelectorAll('[data-sgo]').forEach(b=>b.onclick=()=>{ const [src,pid]=b.dataset.sgo.split('|'); shopOpen=null; go(src==='p' ? `#/p/${pid}/materials` : `#/job/${pid}/materials`); });
+    app.querySelectorAll('[data-hcat]').forEach(b=>b.onclick=()=>{ hcat=b.dataset.hcat; try{ localStorage.setItem('mrbd-home-hub-hcat', hcat); }catch(e){} shopOpen=null; armed=null; render(); focusSel(`[data-hcat="${hcat}"]`); });
+    app.querySelectorAll('[data-scat]').forEach(b=>b.onclick=()=>{
+      const [id,c]=b.dataset.scat.split('|'); const t=live(arr).find(i=>i.id===id); if(!t) return;
+      t.cat=c; touch(t); shopOpen=null; save(); render(); focusFirst(); toast('Moved to ' + HC.find(x=>x.id===c).label);
+    });
     const oh=document.getElementById('onhand'); if(oh) oh.onclick=()=>{ showOnHand=!showOnHand; render(); focusSel('#onhand'); };
     const setDone = (m, v) => {
       const t = m.kind==='mat' ? findMat(m.key) : live(arr).find(i=>i.id===m.id); if(!t) return;
@@ -729,7 +785,7 @@
       if(armed==='clear'){ doneOwn.forEach(remove); armed=null; save(); render(); focusFirst(); }
       else { armed='clear'; render(); focusSel('#clear'); }
     };
-    if (tab==='other' || tab==='all') wireAdd(t=>{ data[sec.id].push(newItem(t)); save(); render(); focusSel('#newi'); });
+    if (tab==='other' || tab==='all') wireAdd(t=>{ const it=newItem(t); it.cat = tab==='other' ? hcat : 'need'; data[sec.id].push(it); save(); render(); focusSel('#newi'); });
     if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
   }
   function renderList(sec){
