@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="My Tasks">
+<title>My Tasks</title>
+<link rel="manifest" href="kids-manifest.json">
+<link rel="apple-touch-icon" href="icon-kitchen.png">
+<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+<style>
+  :root{ --bg:#f4f6fb; --card:#fff; --ink:#18202c; --muted:#677285; --line:#dde2ea; --accent:#2f5fb3; --accent-soft:#e4ecfa;
+    --good:#2e7d4f; --good-soft:#dff1e6; --warn:#c2410c; --warn-soft:#fde7dc; --gold:#e0a400; --gold-soft:#fff4c2;
+    --font:-apple-system, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif; color-scheme:light; }
+  body.k2{ --accent:#7a4cc2; --accent-soft:#efe7fb; }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#11151c; --card:#1a202b; --ink:#e8ecf3; --muted:#9aa5b8; --line:#2b3442; --accent:#7ea6f0; --accent-soft:#1f2c44;
+      --good:#6fcf97; --good-soft:#1c3327; --warn:#f29a6b; --warn-soft:#3a2418; --gold:#ffd54a; --gold-soft:#3a3214; color-scheme:dark; }
+    body.k2{ --accent:#b79af0; --accent-soft:#2c2142; }
+  }
+  *{box-sizing:border-box} html,body{margin:0} body{background:var(--bg);color:var(--ink);font:16px/1.4 var(--font);-webkit-tap-highlight-color:transparent}
+  button,input,textarea{font:inherit;color:inherit}
+  #app{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 14px) 16px calc(env(safe-area-inset-bottom,0px) + 30px)}
+  header{display:flex;align-items:center;gap:10px;margin:4px 0 14px}
+  h1{flex:1;margin:0;font-size:1.7rem;letter-spacing:-.02em}
+  .sync{font-size:.75rem;color:var(--muted);text-align:right;min-width:6em}
+  .gear{border:1.5px solid var(--line);background:var(--card);border-radius:12px;width:40px;height:40px;font-size:1.1rem;cursor:pointer}
+  .alert{display:flex;gap:10px;align-items:center;background:var(--gold-soft);border:1.5px solid var(--gold);border-radius:16px;padding:12px 14px;margin-bottom:14px}
+  .alert b{display:block}
+  .alert.overdue{background:var(--warn-soft);border-color:var(--warn)}
+  .section{font-size:.78rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:16px 4px 8px}
+  .card{background:var(--card);border:1.5px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}
+  .card.soon{border-color:var(--gold);box-shadow:0 0 0 3px rgba(255,213,74,.25)}
+  .card.late{border-color:var(--warn)}
+  .card.new{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent)}
+  .title{font-size:1.15rem;font-weight:700;line-height:1.25}
+  .note{margin-top:6px;padding:6px 10px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:8px;white-space:pre-wrap}
+  .due{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;margin-top:8px;font-size:.9rem;color:var(--muted);font-weight:600}
+  .due .when{color:var(--ink)} .due .rel{border-radius:20px;padding:2px 9px;background:var(--accent-soft);color:var(--accent);font-weight:700}
+  .card.soon .rel{background:var(--gold-soft);color:#8a6400} .card.late .rel{background:var(--warn-soft);color:var(--warn)}
+  .acts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+  .act{border:1.5px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 4px;font-weight:700;cursor:pointer}
+  .act.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .act.done.on{background:var(--good);border-color:var(--good)} .act.help.on{background:var(--warn);border-color:var(--warn)}
+  .mine{margin-top:8px;font-size:.88rem;color:var(--muted)}
+  .remind{display:inline-block;margin-top:10px;color:var(--accent);font-weight:700;text-decoration:none;font-size:.9rem}
+  .helpbox{display:grid;gap:8px;margin-top:10px}
+  .helpbox textarea, .set input[type=tel]{width:100%;border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--bg)}
+  .btn{border:0;background:var(--accent);color:#fff;border-radius:12px;padding:11px 14px;font-weight:700;cursor:pointer}
+  .btn.ghost{background:none;color:var(--muted);border:1.5px solid var(--line)}
+  .empty{text-align:center;color:var(--muted);padding:34px 10px;background:var(--card);border:1.5px dashed var(--line);border-radius:18px}
+  .card.isdone{opacity:.65} .card.isdone .title{text-decoration:line-through}
+  details summary{cursor:pointer;color:var(--muted);font-weight:700;margin:16px 4px 8px}
+  .set{display:grid;gap:12px}
+  .set label{display:grid;gap:4px;font-weight:600}
+  .set .row{display:flex;gap:10px;align-items:center}
+  #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);transform:translateX(-50%);background:#18202c;color:#fff;padding:10px 16px;border-radius:12px;display:none;max-width:90%;text-align:center;z-index:9}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" role="status"></div>
+<script>
+(function(){
+  // Which kid this phone belongs to comes from the link: kids.html?kid=k1 or ?kid=k2
+  const KIDS = {k1:{name:'Eric'}, k2:{name:'Lestina'}};   // names also set in kitchen.html
+  const ok = u => /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u);
+  const qs = new URLSearchParams(location.search);
+  let KID = qs.get('kid'); try { if (!KIDS[KID]) KID = localStorage.getItem('kids-who') || 'k1'; localStorage.setItem('kids-who', KID); } catch(e){ if (!KIDS[KID]) KID='k1'; }
+  if (!KIDS[KID]) KID = 'k1';
+  document.body.classList.add(KID);
+  const LS = 'kids-' + KID + '-v1';
+  let SYNC_URL = '';
+  try { const q = qs.get('sync'); if (q && ok(q)) { SYNC_URL = q; localStorage.setItem('kids-sync', q); } } catch(e){}
+  if (!SYNC_URL) { try { const v = localStorage.getItem('kids-sync') || ''; if (ok(v)) SYNC_URL = v; } catch(e){} }
+
+  // ---------- lock-screen reminders (OneSignal) ----------
+  const ON_SITE = location.hostname === 'joebarcey.github.io';
+  const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const STANDALONE = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  let pushState = 'off';   // off | ask | on | needhome | blocked
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  if (ON_SITE) OneSignalDeferred.push(async function(OneSignal){
+    try {
+      await OneSignal.init({ appId: 'ffe54041-4189-4d1b-9070-89a88ca14cbd',
+        safari_web_id: 'web.onesignal.auto.39e347a3-7290-467c-af89-3542a6fc2365',
+        serviceWorkerPath: 'home-hub/OneSignalSDKWorker.js', serviceWorkerParam: { scope: '/home-hub/' } });
+      await OneSignal.login('kid-' + KID);
+      const upd = () => { pushState = OneSignal.Notifications.permission ? 'on' : (Notification && Notification.permission === 'denied' ? 'blocked' : 'ask'); render(); };
+      OneSignal.Notifications.addEventListener('permissionChange', upd);
+      window.__askPush = async () => { try { await OneSignal.Notifications.requestPermission(); } catch(e){} upd(); };
+      upd();
+    } catch(e){ pushState = 'off'; }
+  });
+  if (ON_SITE && IS_IOS && !STANDALONE) pushState = 'needhome';
+  function cancelPush(id){ if (SYNC_URL) fetch(SYNC_URL + '?action=push', {method:'POST', body: JSON.stringify({op:'cancel', id})}).catch(()=>{}); }
+
+  const app = document.getElementById('app');
+  const now = () => Date.now();
+  const esc = s => { const d=document.createElement('div'); d.textContent = s==null?'':String(s); return d.innerHTML; };
+  // Saved on this phone: the tasks Mom sent (copy), my replies, and my settings
+  let S = { chores:[], r:{}, phone:'', autoText:true, dirty:false };
+  try { Object.assign(S, JSON.parse(localStorage.getItem(LS) || '{}')); } catch(e){}
+  function store(){ try { localStorage.setItem(LS, JSON.stringify(S)); } catch(e){} }
+
+  let status = SYNC_URL ? '' : 'none', last = 0, busy = false, again = false;
+  async function sync(){
+    if (!SYNC_URL) return;
+    if (busy){ again = true; return; }
+    busy = true;
+    try {
+      const k = await (await fetch(SYNC_URL + '?action=get&space=kitchen&t=' + now(), {cache:'no-store'})).json();
+      S.chores = ((k && k.chores) || []).filter(c => c.to===KID && !c.del);
+      const mine = await (await fetch(SYNC_URL + '?action=get&space=kid' + KID + '&t=' + now(), {cache:'no-store'})).json();
+      const rr = (mine && mine.r) || {};
+      Object.keys(rr).forEach(id => { if (!S.r[id] || (rr[id].u||0) > (S.r[id].u||0)) S.r[id] = rr[id]; });
+      // anything new gets marked as seen, so Mom knows it reached the phone
+      S.chores.forEach(c => { if (!S.r[c.id]) { S.r[c.id] = {s:'seen', u:now()}; S.dirty = true; } });
+      // forget replies to tasks Mom deleted
+      Object.keys(S.r).forEach(id => { if (!S.chores.some(c=>c.id===id)) { delete S.r[id]; S.dirty = true; } });
+      if (S.dirty || JSON.stringify(rr) !== JSON.stringify(S.r)) {
+        const p = await fetch(SYNC_URL + '?space=kid' + KID, {method:'POST', body: JSON.stringify({r:S.r})});
+        if (p.ok) S.dirty = false;
+      }
+      store(); status = 'ok'; last = now();
+    } catch(e){ status = 'off'; }
+    busy = false;
+    refresh();
+    if (again){ again = false; sync(); }
+  }
+
+  // ---------- reminders ----------
+  const remindAt = c => c.due ? c.due - (c.lead||60)*60000 : null;
+  const stOf = c => (S.r[c.id] && S.r[c.id].s) || 'new';
+  function rel(ms){
+    let m = Math.round((ms - now())/60000), late = m < 0; m = Math.abs(m);
+    const t = m < 60 ? m + ' min' : m < 1440 ? Math.floor(m/60) + 'h' + (m%60 ? ' ' + (m%60) + 'm' : '') : Math.round(m/1440) + ' day' + (Math.round(m/1440)>1?'s':'');
+    return late ? 'late by ' + t : 'in ' + t;
+  }
+  function fmtDue(ms){
+    if (!ms) return 'No due time';
+    const d = new Date(ms), t0 = new Date(); t0.setHours(0,0,0,0);
+    const days = Math.round((new Date(ms).setHours(0,0,0,0) - t0) / 864e5);
+    const day = days===0 ? 'Today' : days===1 ? 'Tomorrow' : days===-1 ? 'Yesterday' : d.toLocaleDateString([], {weekday:'short', month:'numeric', day:'numeric'});
+    return day + ' at ' + d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  }
+  // A real phone reminder: opens Calendar with an alert set before the due time
+  function icsHref(c){
+    const z = ms => new Date(ms).toISOString().replace(/[-:]/g,'').replace(/\.\d+/, '');
+    const clean = t => String(t||'').replace(/[\\;,]/g, m => '\\' + m).replace(/\n/g, '\\n');
+    const ics = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Family Tasks//EN','BEGIN:VEVENT',
+      'UID:' + c.id + '@familytasks', 'DTSTAMP:' + z(now()), 'DTSTART:' + z(c.due), 'DTEND:' + z(c.due + 15*60000),
+      'SUMMARY:' + clean(c.text), 'DESCRIPTION:' + clean(c.note || 'Task from Mom'),
+      'BEGIN:VALARM','TRIGGER:-PT' + (c.lead||60) + 'M','ACTION:DISPLAY','DESCRIPTION:' + clean(c.text),'END:VALARM',
+      'BEGIN:VALARM','TRIGGER:PT0M','REPEAT:12','DURATION:PT5M','ACTION:DISPLAY','DESCRIPTION:Due now: ' + clean(c.text),'END:VALARM',
+      'END:VEVENT','END:VCALENDAR'].join('\r\n');
+    return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
+  }
+
+  // ---------- replies (saved for Mom's app, and optionally a text) ----------
+  const LABEL = {onit:'👍 On it', done:'✔ Done', help:'✋ Need help'};
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  function reply(c, s, text){
+    S.r[c.id] = {s, t: text || '', u: now()}; S.dirty = true; store(); helpOpen = null; render(); sync();
+    if (s === 'done') cancelPush(c.id);
+    toast(s==='done' ? 'Nice. Mom can see it’s done.' : s==='help' ? 'Sent to Mom.' : 'Mom can see you’re on it.');
+    if (S.autoText && S.phone) {
+      const body = `${LABEL[s].replace(/^\S+\s/, '')}: ${c.text}${text ? ' — ' + text : ''}`;
+      setTimeout(() => { location.href = 'sms:' + S.phone.replace(/[^\d+]/g,'') + (isIOS ? '&' : '?') + 'body=' + encodeURIComponent(body); }, 400);
+    }
+  }
+
+  // ---------- screens ----------
+  let view = 'list', helpOpen = null;
+  function render(){
+    if (view === 'settings') return renderSettings();
+    const all = S.chores.slice().sort((a,b)=>(a.due||9e15)-(b.due||9e15));
+    const open = all.filter(c => stOf(c) !== 'done'), done = all.filter(c => stOf(c) === 'done');
+    const late = open.filter(c => c.due && now() >= c.due);
+    const soon = open.filter(c => c.due && now() >= remindAt(c) && now() < c.due);
+    const cardHtml = c => {
+      const st = stOf(c), late = c.due && c.due < now() && st!=='done', isSoon = !late && c.due && now() >= remindAt(c) && st!=='done';
+      const r = S.r[c.id] || {};
+      return `<div class="card ${late?'late':isSoon?'soon':''} ${st==='new'||st==='seen'?(st==='new'?'new':''):''} ${st==='done'?'isdone':''}">
+        <div class="title">${esc(c.text)}</div>
+        ${c.note ? `<div class="note">${esc(c.note)}</div>` : ''}
+        <div class="due"><span class="when">⏰ ${fmtDue(c.due)}</span>${c.due && st!=='done' ? `<span class="rel">${rel(c.due)}</span>` : ''}</div>
+        ${st!=='done' ? `<div class="acts">
+          <button class="act ${st==='onit'?'on':''}" data-r="onit|${c.id}">👍 On it</button>
+          <button class="act done ${st==='done'?'on':''}" data-r="done|${c.id}">✔ Done</button>
+          <button class="act help ${st==='help'?'on':''}" data-help="${c.id}">✋ Help</button></div>` : ''}
+        ${helpOpen===c.id ? `<div class="helpbox"><textarea id="helpt" rows="2" placeholder="What do you need? (optional)"></textarea>
+          <div class="acts" style="grid-template-columns:1fr 1fr;margin:0"><button class="btn ghost" data-helpcancel>Cancel</button><button class="btn" data-helpsend="${c.id}">Send to Mom</button></div></div>` : ''}
+        ${r.s && r.s!=='seen' ? `<div class="mine">You said ${LABEL[r.s]}${r.t ? ': “' + esc(r.t) + '”' : ''} · ${new Date(r.u).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}</div>` : ''}
+        ${c.due && st!=='done' && c.due > now() ? `<a class="remind" href="${icsHref(c)}" download="task.ics">＋ Add phone reminder (${(c.lead||60) >= 60 ? (c.lead/60) + ' hr' : c.lead + ' min'} before)</a>` : ''}
+      </div>`;
+    };
+    app.innerHTML = `<header><h1>Hi, ${esc(KIDS[KID].name)} 👋</h1><div class="sync">${status==='ok' ? 'Synced ' + new Date(last).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : status==='off' ? 'Offline' : status==='none' ? 'Not linked' : '…'}</div><button class="gear" id="gear" aria-label="Settings">⚙️</button></header>` +
+      (late.length ? `<div class="alert overdue"><span style="font-size:1.6rem">💬</span><div><b>Mom${late.length > 1 ? ' · ' + late.length + ' tasks overdue' : ''}</b>${esc(nagText(late[0]))}<div class="mine" style="margin-top:4px">Tap ✔ Done to make it stop.</div></div></div>` : '') +
+      (soon.length ? `<div class="alert"><span style="font-size:1.6rem">⏰</span><div><b>${soon.length > 1 ? soon.length + ' tasks due soon' : 'Heads up: due ' + rel(soon[0].due).replace('in ', 'in ')}</b>${soon.slice(0,3).map(c => esc(c.text)).join(' · ')}</div></div>` : '') +
+      (pushState==='ask' ? `<div class="alert" style="background:var(--accent-soft);border-color:var(--accent)"><span style="font-size:1.4rem">🔔</span><div style="flex:1"><b>Turn on reminders</b>So Mom’s reminders show up even when the app is closed.</div><button class="btn" id="pushon">Turn on</button></div>` : '') +
+      (pushState==='needhome' ? `<div class="alert" style="background:var(--accent-soft);border-color:var(--accent)"><span style="font-size:1.4rem">📲</span><div><b>Add this to your Home Screen</b>Tap Share, then Add to Home Screen, then open it from the icon to turn on reminders.</div></div>` : '') +
+      (pushState==='blocked' ? `<div class="alert"><span style="font-size:1.4rem">🔕</span><div><b>Reminders are blocked</b>Turn them on in your phone’s Settings → Notifications → My Tasks.</div></div>` : '') +
+      (!S.phone ? `<div class="alert" style="background:var(--accent-soft);border-color:var(--accent)"><span style="font-size:1.4rem">💬</span><div>Add Mom’s number in <b style="display:inline">⚙️ Settings</b> so your replies can also go by text.</div></div>` : '') +
+      `<div class="section">To do · ${open.length}</div>` +
+      (open.length ? open.map(cardHtml).join('') : `<div class="empty">Nothing to do right now. 🎉</div>`) +
+      (done.length ? `<details><summary>✔ Done · ${done.length}</summary>${done.map(cardHtml).join('')}</details>` : '');
+    document.getElementById('gear').onclick = () => { view = 'settings'; render(); };
+    const po = document.getElementById('pushon'); if (po) po.onclick = () => { if (window.__askPush) window.__askPush(); };
+    app.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { const [s,id] = b.dataset.r.split('|'); const c = S.chores.find(x=>x.id===id); if (c) reply(c, s); });
+    app.querySelectorAll('[data-help]').forEach(b => b.onclick = () => { helpOpen = b.dataset.help; render(); const t = document.getElementById('helpt'); if (t) t.focus(); });
+    const hc = app.querySelector('[data-helpcancel]'); if (hc) hc.onclick = () => { helpOpen = null; render(); };
+    const hs = app.querySelector('[data-helpsend]'); if (hs) hs.onclick = () => { const c = S.chores.find(x=>x.id===hs.dataset.helpsend); if (c) reply(c, 'help', document.getElementById('helpt').value.trim()); };
+  }
+  function renderSettings(){
+    app.innerHTML = `<header><h1>Settings</h1><button class="gear" id="back" aria-label="Back">✕</button></header>
+      <div class="card set">
+        <label>Mom’s phone number<input type="tel" id="ph" value="${esc(S.phone)}" placeholder="330-555-0123" autocomplete="tel"></label>
+        <label class="row"><input type="checkbox" id="at" ${S.autoText?'checked':''} style="width:22px;height:22px"> Open a text to Mom when I reply</label>
+        <div class="mine">Your replies always show up in Mom’s Kitchen app. The text is extra: it opens ready to go, and you tap Send.</div>
+        <button class="btn" id="saveset">Save</button>
+      </div>`;
+    document.getElementById('back').onclick = () => { view = 'list'; render(); };
+    document.getElementById('saveset').onclick = () => { S.phone = document.getElementById('ph').value.trim(); S.autoText = document.getElementById('at').checked; store(); view = 'list'; render(); toast('Saved'); };
+  }
+  let lastTouch = 0;
+  ['pointerdown','touchstart','keydown','scroll'].forEach(ev => window.addEventListener(ev, () => { lastTouch = now(); }, {passive:true, capture:true}));
+  function refresh(){
+    const a = document.activeElement;
+    if (view !== 'list' || helpOpen || (a && (a.tagName==='INPUT' || a.tagName==='TEXTAREA')) || now() - lastTouch < 2500) { setTimeout(refresh, 1500); return; }
+    const y = window.scrollY; render(); window.scrollTo(0, y);
+  }
+  let toastT = null;
+  function toast(m){ const t = document.getElementById('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => t.style.display = 'none', 5000); }
+
+  // While the app is open: when a task crosses into its reminder window, buzz (Android) and show the heads-up
+  // Mom's overdue messages: one step angrier every 5 minutes
+  const NAGS = [
+    "Hey sweetie, “{t}” was due just now. Whenever you’re ready. 🙂",
+    "Just checking… “{t}” still isn’t done. I’m sure you’re on it.",
+    "Hmm. “{t}.” Still waiting. I carried you for nine months, you know.",
+    "I’m not mad. I’m just… disappointed. “{t}.”",
+    "Do you know how many times I’ve asked? Me neither. I lost count. “{t}.”",
+    "{N}. Full name. You know what that means. “{t}.” Now.",
+    "I’m not asking again. (I am, every 5 minutes, but still.) “{t}!”",
+    "I’ve started telling the dogs they’re my favorite. “{t},” {n}.",
+    "This is the face I’m making right now: 😤 “{t}.”",
+    "I raised you better than this. “{t}.” Go. Now. 😤😤"
+  ];
+  function nagText(c){
+    const lvl = Math.min(NAGS.length - 1, Math.floor((now() - c.due) / (5*60000)));
+    const nm = KIDS[KID].name;
+    return NAGS[Math.max(0, lvl)].replace(/\{t\}/g, c.text).replace(/\{N\}/g, nm.toUpperCase()).replace(/\{n\}/g, nm);
+  }
+  let warned = {}, nagged = {};
+  function buzz(msg){ try { navigator.vibrate && navigator.vibrate([300,120,300,120,300]); } catch(e){} toast(msg); }
+  function checkReminders(){
+    let soonHit = null, lateHit = null;
+    S.chores.forEach(c => {
+      if (stOf(c)==='done' || !c.due) return;
+      if (now() >= c.due) { if (!nagged[c.id] || now() - nagged[c.id] >= 5*60000) { nagged[c.id] = now(); lateHit = c; } }
+      else if (now() >= remindAt(c) && !warned[c.id]) { warned[c.id] = 1; soonHit = c; }
+    });
+    if (lateHit) buzz('💬 Mom: ' + nagText(lateHit));
+    else if (soonHit) buzz('⏰ Due ' + rel(soonHit.due) + ': ' + soonHit.text);
+  }
+  S.chores.forEach(c => { if (c.due && now() >= remindAt(c) && now() < c.due) warned[c.id] = 1; });
+  setInterval(() => { checkReminders(); refresh(); }, 30000);
+  setTimeout(checkReminders, 1500);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync(); });
+  setInterval(() => { if (document.visibilityState !== 'hidden') sync(); }, 20000);
+  render(); sync();
+})();
+</script>
+</body>
+</html>

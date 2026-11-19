@@ -45,6 +45,23 @@
   body.has-bg .hdform textarea{background-color:var(--glass)}
   .hdnote{display:block;margin-top:4px;padding:4px 8px;border-left:3px solid var(--accent);background:rgba(0,0,0,.04);border-radius:6px;font-size:.95rem;color:var(--ink);white-space:pre-wrap}
   @media (prefers-color-scheme: dark){ .hdnote{background:rgba(255,255,255,.07)} }
+  .kform{display:grid;gap:8px;margin-bottom:6px}
+  .kform input, .kform textarea, .kform select{width:100%;border:1.5px solid var(--line);border-radius:12px;padding:11px 12px;background:var(--card);font:inherit;color:inherit}
+  .kform textarea{resize:vertical;min-height:0;height:3.4em}
+  .chips{display:flex;gap:6px} .chips .chip{flex:1}
+  .krow{display:grid;grid-template-columns:1.4fr 1fr;gap:8px}
+  .krow label{display:grid;gap:3px;font-size:.8rem;color:var(--muted);font-weight:600}
+  .kcard{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:8px}
+  .kcard.knew{border-color:#e0a400;box-shadow:0 0 0 2px rgba(255,213,74,.35)}
+  .kcard.kdone .ktext{color:var(--done);text-decoration:line-through}
+  .ktop{display:flex;align-items:flex-start;gap:8px} .ktext{flex:1;font-size:1.02rem} .ktop .x{padding:0 4px}
+  .kmeta{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:6px;font-size:.85rem}
+  .kdue{color:var(--muted);font-weight:600} .kdue.klate{color:var(--warn)}
+  .kst{border-radius:20px;padding:2px 9px;font-weight:700;font-size:.8rem;background:var(--accent-soft);color:var(--accent)}
+  .kst-new{background:#eef0f3;color:#5b6573} .kst-help{background:#fde3dc;color:#b8452f} .kst-done{background:#dff1e6;color:#2e7d4f} .kst-onit{background:#e2ecfb;color:#2f5fb3}
+  .kreply{margin-top:6px;font-style:italic;color:var(--ink)}
+  .kdone-list summary{cursor:pointer;color:var(--muted);font-weight:600;margin:4px 0 8px}
+  body.has-bg .kcard, body.has-bg .kform input, body.has-bg .kform textarea, body.has-bg .kform select{background-color:var(--glass)}
   /* Joe's items from Home Hub */
   .row.joe .text{color:#e0a400}
   @media (prefers-color-scheme: dark){ .row.joe .text{color:#ffd54a} }
@@ -169,15 +186,19 @@
   }
   const SYNC_URL = findSyncUrl();
 
-  const LISTS = ['todo','groceries','shopping','recipes','honeydo'];
+  const LISTS = ['todo','groceries','shopping','recipes','honeydo','chores'];
   const TABS = [
     {id:'todo',      ic:'✓',  label:'To-Do'},
     {id:'groceries', ic:'🥕', label:'Weekly Shopping'},
     {id:'shopping',  ic:'🛍', label:'Desires & Needs'},
     {id:'meals',     ic:'🍽', label:'Meals'},
     {id:'recipes',   ic:'📖', label:'Recipes'},
-    {id:'honeydo',   ic:'🔨', label:'Honey-Do'}
+    {id:'honeydo',   ic:'🔨', label:'Honey-Do'},
+    {id:'kids',      ic:'👟', label:'Kids'}
   ];
+  // The kids' apps (kids.html?kid=k1 / k2). Change the names here and in kids.html.
+  const KIDS = [{id:'k1', name:'Eric'}, {id:'k2', name:'Lestina'}];
+  const kidName = id => (KIDS.find(k=>k.id===id)||{name:'?'}).name;
 
   const app = document.getElementById('app'), nav = document.getElementById('nav');
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
@@ -445,6 +466,19 @@
       });
     }).catch(()=>{});
   }
+  // Each kid's app keeps its replies in its own space (kidk1, kidk2). Bring them onto Melissa's task list.
+  function pullKids(){
+    return Promise.all(KIDS.map(k=>fetch(SYNC_URL + '?action=get&space=kid' + k.id + '&t=' + now(), {cache:'no-store'})
+      .then(r=>r.ok ? r.json() : null).then(d=>{
+        const r = (d && d.r) || {};
+        data.chores.forEach(c=>{
+          if (c.del || c.to!==k.id) return;
+          const x = r[c.id]; if (!x || (x.u||0) <= (c.ru||0)) return;
+          c.status = x.s; c.reply = x.t || ''; c.ru = x.u; c.u = now();
+          if (x.s && x.s!=='seen') c.news = true;
+        });
+      }).catch(()=>{})));
+  }
   async function sync(){
     if (!SYNC_URL) return;
     if (syncing){ again=true; return; }
@@ -456,6 +490,7 @@
       const before = fingerprint(data);
       mergeInto(data, remote);
       await pullHome();
+      await pullKids();
       store();
       if (dirty || fingerprint(data) !== fingerprint(remote||{})){
         setDirty(false);
@@ -774,7 +809,8 @@
     const openT = live(data.todo).filter(g=>!g.done).length;
     const openS = live(data.shopping).filter(g=>!g.done).length;
     const onM = live(data.recipes).filter(r=>r.on).length;
-    const counts = {todo:openT, groceries:openG, shopping:openS, meals:onM, honeydo:live(data.honeydo).filter(m=>!m.done).length};
+    const counts = {todo:openT, groceries:openG, shopping:openS, meals:onM, honeydo:live(data.honeydo).filter(m=>!m.done).length,
+      kids:live(data.chores).filter(c=>c.news).length};
     nav.innerHTML = TABS.map(t=>`<button class="tab" data-tab="${t.id}" ${t.id===tab?'aria-current="page"':''}><span class="ic" aria-hidden="true">${t.ic}</span><span class="lbl">${t.label}</span>${counts[t.id]?`<span class="badge">${counts[t.id]}</span>`:''}</button>`).join('');
     nav.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>go(b.dataset.tab));
   }
@@ -830,19 +866,100 @@
     else if (tab==='shopping') renderChecklist('shopping','Desires & Needs','Add a desire or need','Nothing here yet.<br>Add things you want or need to buy.');
     else if (tab==='meals') renderMeals();
     else if (tab==='honeydo') renderHoneyDo();
+    else if (tab==='kids') renderKids();
     else renderRecipes();
     if (connectOpen && status==='none'){ const h=app.querySelector('header'); if (h){ h.insertAdjacentHTML('afterend', connectPanel()); wireConnect(); } }
     applyBg(); addBgButton();
     showNews();
     renderNav(); showStatus();
   }
+  const CH_ST = {seen:'👀 Seen', onit:'👍 On it', done:'✔ Done', help:'✋ Needs help'};
   function showNews(){
+    const kn = live(data.chores).filter(c=>c.news);
+    if (kn.length && tab!=='kids'){
+      const h0 = app.querySelector('header');
+      if (h0) h0.insertAdjacentHTML('afterend', `<button type="button" class="news" id="kidsnews" style="width:100%;text-align:left;font:inherit;cursor:pointer"><div><b>👟 ${kn.length} new repl${kn.length>1?'ies':'y'} from the kids</b>
+        ${kn.slice(0,3).map(c=>`<div class="sub" style="color:inherit">${esc(kidName(c.to))}: ${CH_ST[c.status]||''} · ${esc(c.text)}</div>`).join('')}</div><span class="btn">See</span></button>`);
+      const kb = document.getElementById('kidsnews'); if (kb) kb.onclick = () => go('kids');
+    }
     const news = live(data.honeydo).filter(m=>m.done && m.news);
     if (!news.length) return;
     const h = app.querySelector('header'); if (!h) return;
     h.insertAdjacentHTML('afterend', `<div class="news" role="status"><div><b>✔ Joe finished ${news.length>1?news.length+' Honey-Do jobs':'a Honey-Do job'}</b>
       ${news.map(m=>`<div class="sub" style="color:inherit">${esc(m.text)}</div>`).join('')}</div><button class="btn" id="newsok" type="button">OK</button></div>`);
     document.getElementById('newsok').onclick = () => { news.forEach(m=>{ delete m.news; }); store(); render(); };
+  }
+
+  // ---------- Kids: Melissa sends tasks to the kids' phones and sees their replies ----------
+  let kidFor = 'k1';
+  try { const v = localStorage.getItem(LS + '-kidfor'); if (v==='both' || KIDS.some(k=>k.id===v)) kidFor = v; } catch(e){}
+  const LEADS = [[15,'15 min before'],[30,'30 min before'],[60,'1 hour before'],[120,'2 hours before'],[240,'4 hours before'],[1440,'1 day before']];
+  function fmtDue(ms){
+    if (!ms) return 'No due time';
+    const d = new Date(ms), t0 = new Date(); t0.setHours(0,0,0,0);
+    const days = Math.round((new Date(d).setHours(0,0,0,0) - t0) / 864e5);
+    const day = days===0 ? 'Today' : days===1 ? 'Tomorrow' : days===-1 ? 'Yesterday' : d.toLocaleDateString([], {weekday:'short', month:'numeric', day:'numeric'});
+    return day + ' ' + d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  }
+  function localInput(ms){ const d=new Date(ms - new Date(ms).getTimezoneOffset()*60000); return d.toISOString().slice(0,16); }
+  // Lock-screen reminders for the kids: the Google script schedules them through OneSignal
+  function pushChore(op, c){
+    if (!SYNC_URL || !c) return;
+    fetch(SYNC_URL + '?action=push', {method:'POST', body: JSON.stringify({op, id:c.id, kid:c.to, text:c.text, due:c.due, lead:c.lead})}).catch(()=>{});
+  }
+  function renderKids(){
+    const def = (()=>{ const d=new Date(now()+2*3600e3); d.setMinutes(d.getMinutes()<30?30:60,0,0); return d.getTime(); })();
+    const card = c => {
+      const st = c.status || 'new', late = c.due && c.due < now() && st!=='done';
+      return `<div class="kcard ${st==='done'?'kdone':''} ${c.news?'knew':''}">
+        <div class="ktop"><b class="ktext">${esc(c.text)}</b><button class="x ${armed===c.id?'armed':''}" data-kdel="${c.id}" aria-label="Delete ${esc(c.text)}">${armed===c.id?'Delete?':'✕'}</button></div>
+        ${c.note?`<div class="hdnote">${esc(c.note)}</div>`:''}
+        <div class="kmeta"><span class="kdue ${late?'klate':''}">⏰ ${fmtDue(c.due)}${late?' · late':''}</span><span class="kst kst-${st}">${CH_ST[st]||'📨 Sent'}</span></div>
+        ${c.reply?`<div class="kreply">“${esc(c.reply)}”</div>`:''}
+      </div>`;
+    };
+    const lists = KIDS.map(k=>{
+      const all = live(data.chores).filter(c=>c.to===k.id);
+      const open = all.filter(c=>c.status!=='done').sort((a,b)=>(a.due||9e15)-(b.due||9e15));
+      const done = all.filter(c=>c.status==='done').sort((a,b)=>(b.ru||0)-(a.ru||0));
+      return `<div class="section">${esc(k.name)} · ${open.length} open</div>` +
+        (open.length ? open.map(card).join('') : `<div class="empty" style="padding:10px">Nothing waiting on ${esc(k.name)}.</div>`) +
+        (done.length ? `<details class="kdone-list"><summary>✔ ${done.length} done</summary>${done.map(card).join('')}
+          <button class="btn ghost" data-kclear="${k.id}" style="margin-top:6px">${armed==='kc'+k.id?'Tap again to clear':'Clear done'}</button></details>` : '');
+    }).join('');
+    app.innerHTML = header('Kids') + `<form class="kform" data-kadd>
+        <div class="chips" role="radiogroup" aria-label="Send to">${KIDS.concat([{id:'both', name:'Both'}]).map(k=>`<button type="button" class="chip" role="radio" aria-checked="${kidFor===k.id}" data-kfor="${k.id}">${esc(k.name)}</button>`).join('')}</div>
+        <input id="newi" type="text" placeholder="Task, like Take out the trash" aria-label="Task" autocomplete="off" enterkeyhint="next">
+        <textarea id="knote" rows="2" placeholder="Details (optional)" aria-label="Details"></textarea>
+        <div class="krow"><label>Due<input id="kdue" type="datetime-local" value="${localInput(def)}"></label>
+          <label>Remind<select id="klead">${LEADS.map(([m,l])=>`<option value="${m}" ${m===60?'selected':''}>${l}</option>`).join('')}</select></label></div>
+        <button class="btn" type="submit" style="width:100%">Send task</button>
+      </form>` + lists;
+    app.querySelectorAll('[data-kfor]').forEach(b=>b.onclick=()=>{ kidFor=b.dataset.kfor; try{ localStorage.setItem(LS+'-kidfor', kidFor); }catch(e){}
+      app.querySelectorAll('[data-kfor]').forEach(x=>x.setAttribute('aria-checked', x.dataset.kfor===kidFor)); });
+    app.querySelector('[data-kadd]').addEventListener('submit', e=>{
+      e.preventDefault();
+      const i=document.getElementById('newi'), t=i.value.trim(); if(!t){ i.focus(); return; }
+      const v=document.getElementById('kdue').value, due = v ? new Date(v).getTime() : null;
+      const lead = +document.getElementById('klead').value || 60, note = document.getElementById('knote').value.trim();
+      const to = kidFor==='both' ? KIDS.map(k=>k.id) : [kidFor];
+      to.forEach(k=>{ const c={id:uid(), to:k, text:t, note, due, lead, status:'new', c:now(), u:now()}; data.chores.push(c); pushChore('schedule', c); });
+      save(); render(); toast(`Sent to ${kidFor==='both' ? 'both' : kidName(kidFor)}`);
+    });
+    app.querySelectorAll('[data-kdel]').forEach(b=>b.onclick=()=>{
+      const id=b.dataset.kdel;
+      if (armed===id){ const c=data.chores.find(x=>x.id===id); remove(c); pushChore('cancel', c); armed=null; save(); }
+      else armed=id;
+      render();
+    });
+    app.querySelectorAll('[data-kclear]').forEach(b=>b.onclick=()=>{
+      const k=b.dataset.kclear;
+      if (armed==='kc'+k){ live(data.chores).filter(c=>c.to===k && c.status==='done').forEach(remove); armed=null; save(); }
+      else armed='kc'+k;
+      render(); const d=app.querySelector(`[data-kclear="${k}"]`); if (d) d.closest('details').open=true;
+    });
+    // seeing the replies clears the yellow "new" marks
+    if (live(data.chores).some(c=>c.news)){ setTimeout(()=>{ live(data.chores).forEach(c=>{ delete c.news; }); store(); renderNav(); }, 1500); }
   }
 
   // ---------- Honey-Do: her requests go to Joe's Home Hub at priority 5 ----------

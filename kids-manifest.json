@@ -1,0 +1,10 @@
+{
+  "name": "My Tasks",
+  "short_name": "My Tasks",
+  "start_url": "kids.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6fb",
+  "theme_color": "#2f5fb3",
+  "icons": [{ "src": "icon-kitchen.png", "sizes": "180x180", "type": "image/png" }]
+}
