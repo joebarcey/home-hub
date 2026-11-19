@@ -74,6 +74,7 @@
   let SYNC_URL = '';
   try { const q = qs.get('sync'); if (q && ok(q)) { SYNC_URL = q; localStorage.setItem('kids-sync', q); } } catch(e){}
   if (!SYNC_URL) { try { const v = localStorage.getItem('kids-sync') || ''; if (ok(v)) SYNC_URL = v; } catch(e){} }
+  if (SYNC_URL && (qs.get('sync') !== SYNC_URL || qs.get('kid') !== KID)) { try { history.replaceState(null, '', location.pathname + '?kid=' + KID + '&sync=' + SYNC_URL); } catch(e){} }
 
   // ---------- lock-screen reminders (OneSignal) ----------
   const ON_SITE = location.hostname === 'joebarcey.github.io';
@@ -174,6 +175,7 @@
   // ---------- screens ----------
   let view = 'list', helpOpen = null;
   function render(){
+    if (!SYNC_URL && ON_SITE) return renderConnect();
     if (view === 'settings') return renderSettings();
     const all = S.chores.slice().sort((a,b)=>(a.due||9e15)-(b.due||9e15));
     const open = all.filter(c => stOf(c) !== 'done'), done = all.filter(c => stOf(c) === 'done');
@@ -212,6 +214,20 @@
     app.querySelectorAll('[data-help]').forEach(b => b.onclick = () => { helpOpen = b.dataset.help; render(); const t = document.getElementById('helpt'); if (t) t.focus(); });
     const hc = app.querySelector('[data-helpcancel]'); if (hc) hc.onclick = () => { helpOpen = null; render(); };
     const hs = app.querySelector('[data-helpsend]'); if (hs) hs.onclick = () => { const c = S.chores.find(x=>x.id===hs.dataset.helpsend); if (c) reply(c, 'help', document.getElementById('helpt').value.trim()); };
+  }
+  // The home-screen icon can open without the link; paste it once to connect (kid and sync both come from it)
+  function renderConnect(){
+    app.innerHTML = `<header><h1>Connect</h1></header><div class="card set">
+      <b>Paste your My Tasks link</b><div class="mine" style="margin-top:0">Copy the link from the text Mom or Dad sent you, paste it here, and tap Connect.</div>
+      <input type="url" id="cl" placeholder="Paste the link here" autocomplete="off" style="width:100%;border:1.5px solid var(--line);border-radius:12px;padding:11px 12px;background:var(--bg)">
+      <button class="btn" id="cbtn">Connect</button></div>`;
+    document.getElementById('cbtn').onclick = () => {
+      const raw = document.getElementById('cl').value.trim();
+      const sm = raw.match(/https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec/), km = raw.match(/[?&]kid=(k[12])/);
+      if (!sm) { toast("That doesn't look like the right link. Copy the whole link and try again."); return; }
+      try { localStorage.setItem('kids-sync', sm[0]); if (km) localStorage.setItem('kids-who', km[1]); } catch(e){}
+      location.replace(location.pathname + '?kid=' + (km ? km[1] : KID) + '&sync=' + sm[0]);
+    };
   }
   function renderSettings(){
     app.innerHTML = `<header><h1>Settings</h1><button class="gear" id="back" aria-label="Back">✕</button></header>
