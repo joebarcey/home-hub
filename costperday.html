@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cost/Day">
+<meta name="theme-color" content="#f3f1ec">
+<title>Cost Per Day</title>
+<style>
+  :root{ --bg:#f3f1ec; --card:#fff; --ink:#1f1d1a; --muted:#6f6a62; --line:#e2ddd3; --accent:#1f6f5c; --accent-soft:#e1efe9;
+    --gold:#b07a12; --hero:#1f6f5c; --warn:#b8452f; --font:-apple-system,"SF Pro Text","Segoe UI",Roboto,system-ui,sans-serif; color-scheme:light; }
+  @media (prefers-color-scheme: dark){ :root{ --bg:#141412; --card:#1e1d1a; --ink:#eeebe5; --muted:#a39e94; --line:#2f2d29; --accent:#6cc3a5; --accent-soft:#1b302a; --gold:#e3b34f; --hero:#1d5547; --warn:#ef8a72; color-scheme:dark; } }
+  *{box-sizing:border-box} html,body{margin:0} body{background:var(--bg);color:var(--ink);font:16px/1.4 var(--font);-webkit-tap-highlight-color:transparent}
+  button,input,select,textarea{font:inherit;color:inherit}
+  #app{max-width:600px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 14px) 16px calc(env(safe-area-inset-bottom,0px) + 40px)}
+  header{display:flex;align-items:center;gap:10px;margin:2px 0 14px}
+  h1{flex:1;margin:0;font-size:1.6rem;letter-spacing:-.02em}
+  .back{border:1.5px solid var(--line);background:var(--card);border-radius:12px;width:40px;height:40px;font-size:1.2rem;cursor:pointer}
+  .sync{font-size:.72rem;color:var(--muted);text-align:right}
+  .hero{background:var(--hero);color:#fff;border-radius:20px;padding:16px 18px;margin-bottom:14px}
+  .hero .big{font-size:2.3rem;font-weight:800;letter-spacing:-.03em;line-height:1.1}
+  .hero .sub{opacity:.85;font-size:.9rem}
+  .hero .row{display:flex;gap:16px;margin-top:10px;font-size:.9rem} .hero .row b{display:block;font-size:1.05rem}
+  .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;margin:0 -16px;padding-left:16px;padding-right:16px;scrollbar-width:none}
+  .chip{flex:0 0 auto;border:1.5px solid var(--line);background:var(--card);border-radius:99px;padding:7px 12px;font-weight:600;font-size:.9rem;cursor:pointer;white-space:nowrap}
+  .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .chip .n{opacity:.6;font-weight:500;margin-left:4px}
+  .sortbar{display:flex;justify-content:space-between;align-items:center;margin:2px 4px 8px;font-size:.85rem;color:var(--muted)}
+  .sortbar select{border:0;background:none;color:var(--accent);font-weight:700}
+  .item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:8px;cursor:pointer}
+  .ic{font-size:1.5rem;width:2.2rem;text-align:center}
+  .item .mid{flex:1;min-width:0} .item .nm{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .meta{font-size:.82rem;color:var(--muted)}
+  .item .cpd{text-align:right} .item .cpd b{display:block;font-size:1.15rem} .item .cpd span{font-size:.72rem;color:var(--muted)}
+  .item.sold{opacity:.7}
+  .tag{display:inline-block;font-size:.7rem;font-weight:700;padding:1px 7px;border-radius:9px;background:var(--accent-soft);color:var(--accent);margin-left:6px;vertical-align:1px}
+  .btn{border:0;background:var(--accent);color:#fff;border-radius:12px;padding:12px 16px;font-weight:700;cursor:pointer}
+  .btn.ghost{background:var(--card);color:var(--ink);border:1.5px solid var(--line)}
+  .btn.danger{background:var(--card);color:var(--warn);border:1.5px solid var(--warn)}
+  .btn.wide{width:100%}
+  .fab{position:fixed;right:max(16px, calc(50% - 284px));bottom:calc(env(safe-area-inset-bottom,0px) + 18px);border-radius:99px;padding:14px 20px;box-shadow:0 6px 18px rgba(0,0,0,.18);font-size:1rem}
+  .card{background:var(--card);border:1.5px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}
+  .stat{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .stat div{background:var(--bg);border-radius:12px;padding:10px} .stat small{display:block;color:var(--muted);font-size:.78rem} .stat b{font-size:1.1rem}
+  .big2{font-size:2.4rem;font-weight:800;letter-spacing:-.03em;color:var(--accent);line-height:1}
+  .section{font-size:.78rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:16px 4px 8px}
+  .mrow{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+  .mrow:first-child{border-top:0} .mrow .d{flex:1} .mrow small{display:block;color:var(--muted)}
+  .seg{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--bg);border-radius:12px;padding:4px}
+  .seg button{border:0;background:none;border-radius:9px;padding:9px 2px;font-weight:700;font-size:.82rem;color:var(--muted);cursor:pointer}
+  .seg button[aria-checked="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  .medit small{display:block}
+  .medit{border:0;background:none;padding:0;text-align:left;cursor:pointer;width:100%;display:block}
+  .medit b::after{content:" ✏️";font-size:.75em;opacity:.55}
+  .x{border:0;background:none;color:var(--muted);font-size:1.05rem;cursor:pointer;padding:4px 6px}
+  .x.armed{color:var(--warn);font-weight:700;font-size:.85rem}
+  form.f{display:grid;gap:10px}
+  form.f label{display:grid;gap:4px;font-size:.85rem;font-weight:600;color:var(--muted)}
+  form.f input, form.f select, form.f textarea{width:100%;border:1.5px solid var(--line);border-radius:12px;padding:11px 12px;background:var(--card);color:var(--ink);font-size:1rem}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .bar{height:8px;border-radius:8px;background:var(--line);overflow:hidden;margin-top:6px} .bar i{display:block;height:100%;background:var(--accent)}
+  .empty{text-align:center;color:var(--muted);padding:40px 12px;background:var(--card);border:1.5px dashed var(--line);border-radius:18px}
+  .catrow{display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)} .catrow:first-child{border-top:0}
+  .catrow input{flex:0 0 3.2rem;text-align:center} .catrow .nm{flex:1}
+  #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;display:none;z-index:9;max-width:90%;text-align:center}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" role="status"></div>
+<script>
+(function(){
+  // ---------- sync link (same Google storage as Home Hub, in its own "inventory" space) ----------
+  const ok = u => /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u);
+  let SYNC_URL = '';
+  try { const q = new URLSearchParams(location.search).get('sync'); if (q && ok(q)) { SYNC_URL = q; localStorage.setItem('cpd-sync', q); } } catch(e){}
+  if (!SYNC_URL) { try { const v = localStorage.getItem('cpd-sync') || ''; if (ok(v)) SYNC_URL = v; } catch(e){} }
+  const SPACE = 'inventory', LS = 'costperday-v1';
+
+  const app = document.getElementById('app');
+  const now = () => Date.now();
+  const uid = () => now().toString(36) + Math.random().toString(36).slice(2,6);
+  const esc = s => { const d = document.createElement('div'); d.textContent = s==null ? '' : String(s); return d.innerHTML; };
+  const live = a => (a||[]).filter(x => !x.del && !x.soldOn);   // no sold items: once something's gone, it's removed
+  const touch = x => { x.u = now(); };
+  const DEFAULT_CATS = [
+    {id:'veh', name:'Vehicles', ic:'🚗'}, {id:'book', name:'Books', ic:'📚'}, {id:'tool', name:'Tools', ic:'🔧'},
+    {id:'jew', name:'Jewelry', ic:'💍'}, {id:'elec', name:'Electronics', ic:'📱'}, {id:'home', name:'Home & Furniture', ic:'🛋️'},
+    {id:'out', name:'Outdoor & Sports', ic:'⛺'}, {id:'other', name:'Other', ic:'📦'}
+  ].map((c,i) => Object.assign(c, {o:i, c:0, u:0}));
+
+  // ---------- data ----------
+  let data = null;
+  try { data = JSON.parse(localStorage.getItem(LS) || 'null'); } catch(e){}
+  if (!data) data = { items: [], cats: DEFAULT_CATS.map(c => Object.assign({}, c)) };
+  ['items','cats'].forEach(k => { if (!Array.isArray(data[k])) data[k] = []; });
+  if (!data.cats.length) data.cats = DEFAULT_CATS.map(c => Object.assign({}, c));
+  let dirty = false;
+  try { dirty = localStorage.getItem(LS + '-dirty') === '1'; } catch(e){}
+  function store(){ try { localStorage.setItem(LS, JSON.stringify(data)); localStorage.setItem(LS + '-dirty', dirty ? '1' : '0'); } catch(e){} }
+  function save(){ dirty = true; store(); scheduleSync(); }
+
+  // ---------- money and days ----------
+  const DAY = 864e5;
+  const parseDate = s => { if (!s) return null; const p = s.split('-'); return new Date(+p[0], p[1]-1, +p[2]).getTime(); };
+  const toInput = ms => { const d = new Date(ms); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+  const today0 = () => { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); };
+  const money = (n, dp) => (n < 0 ? '−' : '') + '$' + Math.abs(n).toLocaleString(undefined, {minimumFractionDigits: dp==null ? 2 : dp, maximumFractionDigits: dp==null ? 2 : dp});
+  const perDayFmt = n => n >= 100 ? money(n, 0) : n >= 1 ? money(n) : '$' + n.toFixed(n < .1 ? 3 : 2);
+  const num = v => { const n = parseFloat(String(v||'').replace(/[^0-9.\-]/g,'')); return isFinite(n) ? n : 0; };
+  // Everything about one item's cost, from purchase to today (or to the day it was sold)
+  function calc(it){
+    const start = parseDate(it.bought) || today0();
+    const end = today0();
+    const days = Math.max(1, Math.round((end - start) / DAY) + 1);
+    const ms = live(it.maint);
+    const maint = ms.reduce((s,m) => s + spent(m), 0);
+    // what keeps coming: monthly + yearly charges still going, and loan interest over the next 12 payments
+    const monthly = ms.filter(m => kindOf(m)==='m' && !m.end).reduce((s,m) => s + num(m.cost), 0);
+    const yearly = ms.filter(m => kindOf(m)==='y' && !m.end).reduce((s,m) => s + num(m.cost), 0);
+    const loanNext = ms.filter(m => kindOf(m)==='loan').reduce((s,m) => s + loan(m).next12, 0);
+    const total = num(it.price) + maint;
+    const perDay = total / days;
+    const nextYear = monthly * 12 + yearly + loanNext;
+    return { days, maint, monthly, yearly, loanNext, ongoing: monthly + yearly / 12, total, perDay, perMonth: perDay * 30.44, perYear: perDay * 365.25,
+      in365: (total + nextYear) / (days + 365) };
+  }
+  // Monthly charges (insurance, payments, storage): one charge on the start date, then the same day each month,
+  // until today or until it was stopped
+  const kindOf = m => m.loan ? 'loan' : m.recur ? (m.freq==='y' ? 'y' : 'm') : 'once';
+  // How many monthly (or yearly) charges have come due, from the first one up to today or the day it stopped
+  function payments(m, yearly){
+    const a = new Date(parseDate(m.date) || today0()), b = new Date(m.end ? Math.min(parseDate(m.end), today0()) : today0());
+    let mo = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + (b.getDate() >= a.getDate() ? 1 : 0);
+    if (yearly) return Math.max(0, Math.floor((mo - 1) / 12) + 1);
+    return Math.max(0, mo);
+  }
+  // A loan on the item: the price already counts what you borrowed, so only the interest is added as a cost.
+  // Standard monthly payment; interest each month = what's still owed × monthly rate.
+  function loan(m){
+    const L = m.loan || {}, amt = num(L.amt), r = num(L.apr) / 1200, n = Math.max(1, Math.round(num(L.term)) || 1);
+    const pmt = r ? amt * r / (1 - Math.pow(1 + r, -n)) : amt / n;
+    const made = Math.min(n, payments(m)), sched = [];
+    let bal = amt;
+    for (let k = 0; k < n; k++){ const i = bal * r; sched.push(i); bal -= (pmt - i); }
+    const paid = sched.slice(0, made).reduce((s,x) => s + x, 0), all = sched.reduce((s,x) => s + x, 0);
+    const next12 = m.end ? 0 : sched.slice(made, made + 12).reduce((s,x) => s + x, 0);
+    return { pmt, made, n, paid, all, next12, left: Math.max(0, n - made) };
+  }
+  const spent = m => { const k = kindOf(m); return k==='loan' ? loan(m).paid : k==='m' ? num(m.cost) * payments(m) : k==='y' ? num(m.cost) * payments(m, true) : num(m.cost); };
+  const cat = id => data.cats.find(c => c.id === id && !c.del) || {id:'other', name:'Other', ic:'📦'};
+  const ownedText = d => d < 60 ? d + ' day' + (d>1?'s':'') : d < 730 ? Math.round(d/30.44) + ' months' : (d/365.25).toFixed(1).replace(/\.0$/,'') + ' years';
+
+  // ---------- sync (merge by item, newest change wins) ----------
+  function mergeList(a, b, nested){
+    const by = new Map(a.map(x => [x.id, x]));
+    (b||[]).forEach(y => {
+      const x = by.get(y.id);
+      if (!x) { a.push(y); by.set(y.id, y); return; }
+      if ((y.u||0) > (x.u||0)) { const keep = nested ? x[nested] : null; Object.keys(x).forEach(k => delete x[k]); Object.assign(x, y); if (nested) { x[nested] = keep || []; } }
+      if (nested) { if (!Array.isArray(x[nested])) x[nested] = []; mergeList(x[nested], y[nested] || [], null); }
+    });
+  }
+  let status = SYNC_URL ? '' : 'none', last = 0, busy = false, again = false, timer = null;
+  function scheduleSync(){ if (!SYNC_URL) return; clearTimeout(timer); timer = setTimeout(sync, 700); }
+  async function sync(){
+    if (!SYNC_URL) return;
+    if (busy) { again = true; return; }
+    busy = true;
+    try {
+      const r = await fetch(SYNC_URL + '?action=get&space=' + SPACE + '&t=' + now(), {cache:'no-store'});
+      const remote = await r.json() || {};
+      const before = JSON.stringify(data);
+      mergeList(data.items, remote.items, 'maint');
+      mergeList(data.cats, remote.cats, null);
+      const changed = JSON.stringify(data) !== before;
+      const fp = d => JSON.stringify([(d.items||[]).map(i => i.id + ':' + (i.u||0) + ':' + (i.maint||[]).map(m => m.id + (m.u||0)).sort().join()).sort(), (d.cats||[]).map(c => c.id + ':' + (c.u||0)).sort()]);
+      if (dirty || fp(remote) !== fp(data)) {
+        const p = await fetch(SYNC_URL + '?space=' + SPACE, {method:'POST', body: JSON.stringify(data)});
+        if (p.ok) dirty = false;
+      }
+      store(); status = 'ok'; last = now();
+      if (changed) refresh();
+      else paintSync();
+    } catch(e){ status = 'off'; paintSync(); }
+    busy = false;
+    if (again) { again = false; sync(); }
+  }
+  const syncText = () => status==='ok' ? 'Synced ' + new Date(last).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : status==='off' ? 'Offline · saved' : status==='none' ? 'This phone only' : '';
+  function paintSync(){ const el = document.getElementById('sync'); if (el) el.textContent = syncText(); }
+  let lastTouch = 0;
+  ['pointerdown','touchstart','keydown','scroll'].forEach(ev => window.addEventListener(ev, () => { lastTouch = now(); }, {passive:true, capture:true}));
+  function refresh(){
+    const a = document.activeElement;
+    if ((a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) || now() - lastTouch < 2500 || armed) { setTimeout(refresh, 1500); return; }
+    const y = window.scrollY; render(); window.scrollTo(0, y);
+  }
+
+  // ---------- screens ----------
+  let view = 'list', openId = null, filter = 'home', sortBy = 'perDay', armed = null, editMaint = false, mkind = 'once';
+  try { sortBy = localStorage.getItem(LS + '-sort') || 'perDay'; } catch(e){}
+  function go(v, id){ view = v; openId = id || null; armed = null; editMaint = false; render(); window.scrollTo(0,0); }
+  const header = (title, back) => `<header>${back ? `<button class="back" id="back" aria-label="Back">‹</button>` : ''}<h1>${title}</h1><div class="sync" id="sync">${syncText()}</div></header>`;
+
+  function render(){
+    if (view === 'item') return renderItem();
+    if (view === 'edit') return renderEdit();
+    if (view === 'cats') return renderCats();
+    renderList();
+  }
+
+  function renderList(){
+    const all = live(data.items);
+    const cats = live(data.cats).sort((a,b) => (a.o||0) - (b.o||0));
+    if (filter!=='home' && filter!=='all' && !data.cats.some(c => c.id===filter && !c.del)) filter = 'home';
+    const inCat = id => all.filter(i => i.cat===id);
+    const dayOf = list => list.reduce((s,i) => s + calc(i).perDay, 0);
+    const spentOf = list => list.reduce((s,i) => s + calc(i).total, 0);
+    const f = filter==='home' || filter==='all' ? null : cat(filter);
+    const scope = f ? inCat(f.id) : all, day = dayOf(scope);
+    const hero = `<div class="hero"><div class="sub">${f ? f.ic + ' ' + esc(f.name) + ' cost you' : 'Everything you own costs you'}</div>
+        <div class="big">${perDayFmt(day)}<span style="font-size:1rem;font-weight:600"> /day</span></div>
+        <div class="row"><div><b>${money(day * 30.44, 0)}</b>a month</div><div><b>${money(day * 365.25, 0)}</b>a year</div>
+        <div><b>${money(spentOf(scope), 0)}</b>spent in all</div></div>
+        ${f && scope.length ? `<div class="row" style="margin-top:6px"><div><b>${perDayFmt(day / scope.length)}</b>average per item, per day</div></div>` : ''}</div>`;
+
+    // Overview: one card per category, with the average per item
+    if (filter === 'home') {
+      const rows = cats.map(c => { const l = inCat(c.id); return {c, l, n: l.length, day: dayOf(l)}; }).filter(x => x.n).sort((a,b) => b.day - a.day);
+      app.innerHTML = header('Cost Per Day') + hero +
+        (rows.length ? `<div class="sortbar"><span>${rows.length} categor${rows.length===1?'y':'ies'}</span><span>avg per item</span></div>` +
+          rows.map(x => `<button class="item" data-f="${x.c.id}"><span class="ic">${x.c.ic}</span>
+            <span class="mid"><span class="nm" style="display:block">${esc(x.c.name)}</span>
+            <span class="meta">${x.n} item${x.n===1?'':'s'} · ${perDayFmt(x.day)}/day together · ${money(spentOf(x.l), 0)} in all</span></span>
+            <span class="cpd"><b>${perDayFmt(x.day / x.n)}</b><span>avg / day</span></span></button>`).join('') +
+          `<div class="two" style="margin-top:6px"><button class="btn ghost" data-f="all">📋 All items · ${all.length}</button><button class="btn ghost" id="cats">✏️ Categories</button></div>`
+          : `<div class="empty">Add the things you own,<br>and see what each one costs you per day.</div><button class="btn ghost wide" id="cats" style="margin-top:10px">✏️ Categories</button>`) +
+        `<button class="btn fab" id="add" style="background:var(--hero)">＋ Add item</button><div style="height:70px"></div>`;
+    } else {
+      // A category (or everything): the items, most expensive per day first
+      const S = { perDay: (a,b) => calc(b).perDay - calc(a).perDay, total: (a,b) => calc(b).total - calc(a).total,
+        newest: (a,b) => (parseDate(b.bought)||0) - (parseDate(a.bought)||0), name: (a,b) => a.name.localeCompare(b.name) };
+      const list = scope.slice().sort(S[sortBy]);
+      app.innerHTML = header(f ? f.ic + ' ' + esc(f.name) : 'All items', true) + hero +
+        `<div class="sortbar"><span>${list.length} item${list.length===1?'':'s'}</span><label>Sort: <select id="sort">
+          ${[['perDay','Cost per day'],['total','Total cost'],['newest','Newest'],['name','A–Z']].map(([v,l]) => `<option value="${v}" ${sortBy===v?'selected':''}>${l}</option>`).join('')}</select></label></div>` +
+        (list.length ? list.map(i => { const c = calc(i), k = cat(i.cat);
+          return `<button class="item" data-open="${i.id}"><span class="ic">${k.ic}</span>
+            <span class="mid"><span class="nm" style="display:block">${esc(i.name)}</span>
+            <span class="meta">${money(c.total, 0)} over ${ownedText(c.days)}${c.maint ? ' · incl. ' + money(c.maint, 0) + ' upkeep' : ''}${c.ongoing ? ' · ' + money(c.ongoing, 0) + '/mo ongoing' : ''}</span></span>
+            <span class="cpd"><b>${perDayFmt(c.perDay)}</b><span>per day</span></span></button>`; }).join('')
+          : `<div class="empty">Nothing here yet.</div>`) +
+        `<button class="btn fab" id="add" style="background:var(--hero)">＋ Add item</button><div style="height:70px"></div>`;
+      document.getElementById('back').onclick = () => { filter = 'home'; render(); window.scrollTo(0,0); };
+      document.getElementById('sort').onchange = e => { sortBy = e.target.value; try { localStorage.setItem(LS + '-sort', sortBy); } catch(er){} render(); };
+    }
+    app.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; render(); window.scrollTo(0,0); });
+    app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => go('item', b.dataset.open));
+    document.getElementById('add').onclick = () => go('edit', null);
+    const cb = document.getElementById('cats'); if (cb) cb.onclick = () => go('cats');
+  }
+
+  function renderItem(){
+    const it = live(data.items).find(x => x.id === openId); if (!it) return go('list');
+    const c = calc(it), k = cat(it.cat), ms = live(it.maint).sort((a,b) => ((kindOf(b)!=='once') - (kindOf(a)!=='once')) || (parseDate(b.date)||0) - (parseDate(a.date)||0));
+    const pct = c.total > 0 ? Math.min(100, Math.round(num(it.price) / (num(it.price) + c.maint) * 100)) : 100;
+    app.innerHTML = header(esc(it.name), true) +
+      `<div class="card" style="text-align:center"><div style="color:var(--muted);font-size:.9rem">${k.ic} ${esc(k.name)} · owned for ${ownedText(c.days)}</div>
+        <div class="big2" style="margin:8px 0 4px">${perDayFmt(c.perDay)}</div><div style="color:var(--muted)">per day</div></div>
+      <div class="card stat">
+        <div><small>Bought for</small><b>${money(num(it.price))}</b></div>
+        <div><small>Upkeep so far</small><b>${money(c.maint)}</b></div>
+        ${c.monthly ? `<div><small>Monthly charges</small><b>${money(c.monthly)}/mo</b></div>` : ''}
+        ${c.yearly ? `<div><small>Yearly charges</small><b>${money(c.yearly)}/yr</b></div>` : ''}
+        <div><small>Total cost</small><b>${money(c.total)}</b></div>
+        <div><small>Per month</small><b>${money(c.perMonth)}</b></div>
+        <div><small>Per year</small><b>${money(c.perYear, 0)}</b></div>
+        <div><small>In a year${c.monthly || c.yearly || c.loanNext ? ', with what keeps coming' : ', if nothing changes'}</small><b>${perDayFmt(c.in365)}/day</b></div>
+      </div>
+      ${c.maint ? `<div class="card"><small style="color:var(--muted)">Where the money went</small><div class="bar"><i style="width:${pct}%"></i></div>
+        <div style="display:flex;justify-content:space-between;font-size:.82rem;color:var(--muted);margin-top:4px"><span>Purchase ${pct}%</span><span>Upkeep ${100-pct}%</span></div></div>` : ''}
+      <div class="section">Maintenance & upkeep · ${ms.length}</div>
+      <div class="card">
+        ${ms.map(m => { const k = kindOf(m), del = `<button class="x ${armed===m.id?'armed':''}" data-mdel="${m.id}" aria-label="Delete">${armed===m.id?'Delete?':'✕'}</button>`;
+          const d = ms => new Date(parseDate(ms)).toLocaleDateString();
+          if (k==='loan') { const L = loan(m);
+            return `<div class="mrow"><div class="d"><button class="medit" data-medit="${m.id}"><b>💳 ${esc(m.desc || 'Loan interest')}</b>
+              <small>${money(num(m.loan.amt), 0)} at ${num(m.loan.apr)}% for ${L.n} months · ${money(L.pmt)}/mo · ${L.made} of ${L.n} paid${m.end ? ', paid off ' + d(m.end) : ''}</small>
+              <small>Interest so far ${money(L.paid)} of ${money(L.all)} total</small></button></div><b>${money(L.paid)}</b>${del}</div>`; }
+          if (k==='m' || k==='y') { const y = k==='y', n = payments(m, y);
+            return `<div class="mrow"><div class="d"><button class="medit" data-medit="${m.id}"><b>🔁 ${esc(m.desc || (y ? 'Yearly charge' : 'Monthly charge'))}</b>
+              <small>${money(num(m.cost))}${y ? '/yr' : '/mo'} since ${d(m.date)}${m.end ? ', stopped ' + d(m.end) : ''} · ${n} payment${n===1?'':'s'}</small></button>
+              ${m.end ? '' : `<button class="x" data-mstop="${m.id}" style="padding:4px 0;color:var(--accent);font-weight:700;font-size:.82rem">${armed==='s'+m.id ? 'Tap again to stop it' : 'Stop this charge'}</button>`}</div>
+              <b>${money(num(m.cost) * n)}</b>${del}</div>`; }
+          return `<div class="mrow"><div class="d"><button class="medit" data-medit="${m.id}"><b>${esc(m.desc || 'Maintenance')}</b><small>${m.date ? d(m.date) : ''}</small></button></div>
+            <b>${money(num(m.cost))}</b>${del}</div>`; }).join('') || '<div style="color:var(--muted)">No upkeep yet. Oil changes, repairs, insurance, loan interest…</div>'}
+        ${editMaint ? (() => { const em = editMaint===true ? null : live(it.maint).find(x => x.id===editMaint); mkind = em ? kindOf(em) : (mkind || 'once');
+            const K = [['once','One-time'],['m','Monthly'],['y','Yearly'],['loan','Loan interest']];
+            return `<form class="f" id="mform" style="margin-top:12px">${em ? '<div class="section" style="margin:0">Edit</div>' : ''}
+            <div class="seg" role="radiogroup" aria-label="Type">${K.map(([v,l]) => `<button type="button" role="radio" aria-checked="${mkind===v}" data-mk="${v}">${l}</button>`).join('')}</div>
+            <label><span data-lbl="desc"></span><input id="md" value="${em ? esc(em.desc) : ''}" autocomplete="off" required></label>
+            <div class="two" data-show="once m y"><label><span data-lbl="cost"></span><input id="mc" inputmode="decimal" value="${em && !em.loan ? num(em.cost) : ''}" placeholder="0.00"></label>
+              <label><span data-lbl="date"></span><input id="mdt" type="date" value="${em && em.date ? esc(em.date) : toInput(now())}"></label></div>
+            <div data-show="loan" style="display:grid;gap:10px">
+              <div class="two"><label>Amount borrowed<input id="la" inputmode="decimal" value="${em && em.loan ? num(em.loan.amt) : (num(it.price) || '')}" placeholder="0.00"></label>
+                <label>Interest rate (APR %)<input id="lr" inputmode="decimal" value="${em && em.loan ? num(em.loan.apr) : ''}" placeholder="6.9"></label></div>
+              <div class="two"><label>Length (months)<input id="lt" inputmode="numeric" value="${em && em.loan ? num(em.loan.term) : ''}" placeholder="60"></label>
+                <label>First payment<input id="ld" type="date" value="${em && em.loan && em.date ? esc(em.date) : (it.bought || toInput(now()))}"></label></div>
+              <div id="lprev" style="font-size:.85rem;color:var(--muted)"></div></div>
+            <label data-show="m y loan"><span data-lbl="end"></span><input id="mend" type="date" value="${em && em.end ? esc(em.end) : ''}"></label>
+            <div class="two"><button type="button" class="btn ghost" id="mcancel">Cancel</button><button class="btn">${em ? 'Save' : 'Add'}</button></div></form>`; })()
+          : `<button class="btn ghost wide" id="madd" style="margin-top:10px">＋ Add maintenance</button>`}
+      </div>
+      ${it.note ? `<div class="section">Notes</div><div class="card" style="white-space:pre-wrap">${esc(it.note)}</div>` : ''}
+      <div class="two" style="margin-top:14px"><button class="btn ghost" id="edit">✏️ Edit</button>
+        <button class="btn danger" id="del">${armed==='item' ? 'Tap again to delete' : '🗑 Delete'}</button></div>`;
+    document.getElementById('back').onclick = () => go('list');
+    document.getElementById('edit').onclick = () => go('edit', it.id);
+    document.getElementById('del').onclick = () => { if (armed==='item') { it.del = true; touch(it); save(); toast('Deleted'); go('list'); } else { armed = 'item'; render(); } };
+    const ma = document.getElementById('madd'); if (ma) ma.onclick = () => { editMaint = true; mkind = 'once'; armed = null; render(); };
+    const mc = document.getElementById('mcancel'); if (mc) mc.onclick = () => { editMaint = false; render(); };
+    const LBL = { once: {desc:'What was done', ph:'Oil change, new tires, resize…', cost:'Cost', date:'Date'},
+      m: {desc:'What it’s for', ph:'Insurance, storage unit, subscription…', cost:'Monthly cost', date:'First payment', end:'Stopped on (leave blank if it’s still going)'},
+      y: {desc:'What it’s for', ph:'Registration, yearly insurance, inspection…', cost:'Yearly cost', date:'First payment', end:'Stopped on (leave blank if it’s still going)'},
+      loan: {desc:'Name', ph:'Truck loan', end:'Paid off early on (leave blank if still paying)'} };
+    function paintKind(){
+      const fm = document.getElementById('mform'); if (!fm) return;
+      fm.querySelectorAll('[data-mk]').forEach(b => b.setAttribute('aria-checked', b.dataset.mk===mkind));
+      fm.querySelectorAll('[data-show]').forEach(el => el.style.display = el.dataset.show.split(' ').includes(mkind) ? '' : 'none');
+      fm.querySelectorAll('[data-lbl]').forEach(el => el.textContent = LBL[mkind][el.dataset.lbl] || '');
+      document.getElementById('md').placeholder = LBL[mkind].ph;
+      document.getElementById('mc').required = mkind !== 'loan';
+      if (mkind==='loan') { const L = loan({loan:{amt:document.getElementById('la').value, apr:document.getElementById('lr').value, term:document.getElementById('lt').value}, date:document.getElementById('ld').value});
+        document.getElementById('lprev').textContent = num(document.getElementById('la').value) && num(document.getElementById('lt').value)
+          ? 'Payment ' + money(L.pmt) + '/mo · total interest ' + money(L.all) + ' · only the interest is added (the price already counts the loan)' : 'Only the interest gets added, since the price already counts what you borrowed.'; }
+    }
+    if (document.getElementById('mform')) {
+      document.querySelectorAll('[data-mk]').forEach(b => b.onclick = () => { mkind = b.dataset.mk; paintKind(); });
+      ['la','lr','lt','ld'].forEach(id => document.getElementById(id).oninput = paintKind);
+      paintKind();
+    }
+    app.querySelectorAll('[data-medit]').forEach(b => b.onclick = () => { editMaint = b.dataset.medit; armed = null; render();
+      const fm = document.getElementById('mform'); if (fm) fm.scrollIntoView({block:'center'}); });
+    app.querySelectorAll('[data-mstop]').forEach(b => b.onclick = () => {
+      const m = it.maint.find(x => x.id === b.dataset.mstop);
+      if (armed === 's' + m.id) { m.end = toInput(now()); touch(m); touch(it); armed = null; save(); toast('Stopped. Past payments still count.'); } else armed = 's' + m.id;
+      render();
+    });
+    const mf = document.getElementById('mform'); if (mf) mf.onsubmit = e => {
+      e.preventDefault();
+      if (!Array.isArray(it.maint)) it.maint = [];
+      const endv = document.getElementById('mend').value;
+      const em = editMaint===true ? null : it.maint.find(x => x.id===editMaint);
+      const m = em || {id: uid(), c: now()};
+      m.desc = document.getElementById('md').value.trim();
+      delete m.recur; delete m.freq; delete m.loan; delete m.end;
+      if (mkind==='loan') {
+        const L = {amt: num(document.getElementById('la').value), apr: num(document.getElementById('lr').value), term: Math.round(num(document.getElementById('lt').value))};
+        if (!L.amt || !L.term) { toast('Enter the amount borrowed and the length in months'); return; }
+        m.loan = L; m.cost = 0; m.date = document.getElementById('ld').value || it.bought;
+      } else {
+        m.cost = num(document.getElementById('mc').value); m.date = document.getElementById('mdt').value;
+        if (mkind==='m' || mkind==='y') { m.recur = true; if (mkind==='y') m.freq = 'y'; }
+      }
+      if (mkind !== 'once' && endv) m.end = endv;
+      touch(m); if (!em) it.maint.push(m);
+      touch(it); editMaint = false; save(); render(); toast((em ? 'Saved' : 'Added') + '. Now ' + perDayFmt(calc(it).perDay) + ' per day');
+    };
+    app.querySelectorAll('[data-mdel]').forEach(b => b.onclick = () => {
+      const m = it.maint.find(x => x.id === b.dataset.mdel);
+      if (armed === m.id) { m.del = true; touch(m); touch(it); armed = null; save(); } else armed = m.id;
+      render();
+    });
+  }
+
+  function renderEdit(){
+    const it = openId ? live(data.items).find(x => x.id === openId) : null;
+    const v = it || { name:'', cat: filter!=='all' && filter!=='home' ? filter : 'veh', price:'', bought: toInput(now()), note:'' };
+    const cats = live(data.cats).sort((a,b) => (a.o||0) - (b.o||0));
+    app.innerHTML = header(it ? 'Edit item' : 'Add item', true) +
+      `<form class="f card" id="f">
+        <label>Name<input id="n" value="${esc(v.name)}" placeholder="2019 F-150, Grandpa's watch, DeWalt drill…" autocomplete="off" required></label>
+        <label>Category<select id="c">${cats.map(c => `<option value="${c.id}" ${v.cat===c.id?'selected':''}>${c.ic} ${esc(c.name)}</option>`).join('')}</select></label>
+        <div class="two"><label>Price paid<input id="p" inputmode="decimal" value="${v.price===''?'':num(v.price)}" placeholder="0.00" required></label>
+          <label>Date bought<input id="b" type="date" value="${esc(v.bought)}" required></label></div>
+        <label>Notes (optional)<textarea id="no" rows="2" placeholder="Serial number, where it's from, warranty…">${esc(v.note||'')}</textarea></label>
+        <button class="btn wide">${it ? 'Save' : 'Add item'}</button>
+      </form>`;
+    document.getElementById('back').onclick = () => it ? go('item', it.id) : go('list');
+    document.getElementById('f').onsubmit = e => {
+      e.preventDefault();
+      const x = it || {id: uid(), maint: [], c: now()};
+      x.name = document.getElementById('n').value.trim(); x.cat = document.getElementById('c').value;
+      x.price = num(document.getElementById('p').value); x.bought = document.getElementById('b').value;
+      x.note = document.getElementById('no').value.trim();
+      touch(x); if (!it) data.items.push(x);
+      save(); toast(it ? 'Saved' : 'Added'); go('item', x.id);
+    };
+  }
+
+  function renderCats(){
+    const cats = live(data.cats).sort((a,b) => (a.o||0) - (b.o||0));
+    const used = id => live(data.items).some(i => i.cat === id);
+    app.innerHTML = header('Categories', true) +
+      `<div class="card">${cats.map(c => `<div class="catrow"><input data-ic="${c.id}" value="${esc(c.ic)}" aria-label="Icon for ${esc(c.name)}" style="border:1.5px solid var(--line);border-radius:10px;padding:8px;background:var(--bg);font-size:1.2rem">
+          <input class="nm" data-nm="${c.id}" value="${esc(c.name)}" aria-label="Name" style="border:1.5px solid var(--line);border-radius:10px;padding:9px;background:var(--bg)">
+          ${used(c.id) ? '<span style="width:2.4rem"></span>' : `<button class="x ${armed===c.id?'armed':''}" data-cdel="${c.id}" aria-label="Remove ${esc(c.name)}">${armed===c.id?'Remove?':'✕'}</button>`}</div>`).join('')}</div>
+      <form class="f card" id="cf"><div class="catrow" style="border:0;padding:0"><input id="ci" value="🏷️" aria-label="Icon" style="flex:0 0 3.2rem;text-align:center;border:1.5px solid var(--line);border-radius:10px;padding:8px;font-size:1.2rem">
+        <input id="cn" placeholder="New category, like Firearms or Collectibles" autocomplete="off" style="flex:1"></div><button class="btn wide">＋ Add category</button></form>
+      <div style="font-size:.82rem;color:var(--muted);margin:0 4px">Tap an icon to swap in any emoji. Categories with items in them can’t be removed.</div>
+      <div class="section">Backup</div>
+      <div class="card" style="display:grid;gap:10px">
+        <button class="btn ghost wide" id="bkcopy">📤 Copy a backup of everything</button>
+        <textarea id="bkin" rows="2" placeholder="Paste a backup here to bring it in" style="width:100%;border:1.5px solid var(--line);border-radius:12px;padding:10px;background:var(--bg);color:var(--ink)"></textarea>
+        <button class="btn ghost wide" id="bkpaste">📥 Bring in this backup</button>
+        <div style="font-size:.8rem;color:var(--muted)">Bringing in a backup adds its items. Nothing already here is lost.</div></div>`;
+    document.getElementById('back').onclick = () => go('list');
+    app.querySelectorAll('[data-ic]').forEach(i => i.onchange = () => { const c = data.cats.find(x => x.id === i.dataset.ic); c.ic = i.value.trim() || '📦'; touch(c); save(); });
+    app.querySelectorAll('[data-nm]').forEach(i => i.onchange = () => { const c = data.cats.find(x => x.id === i.dataset.nm); if (i.value.trim()) { c.name = i.value.trim(); touch(c); save(); } });
+    app.querySelectorAll('[data-cdel]').forEach(b => b.onclick = () => { const id = b.dataset.cdel; if (armed===id) { const c = data.cats.find(x => x.id===id); c.del = true; touch(c); armed = null; save(); } else armed = id; render(); });
+    document.getElementById('bkcopy').onclick = async () => { const t = packData();
+      try { await navigator.clipboard.writeText(t); toast('Backup copied. Paste it somewhere safe, like a note.'); }
+      catch(e){ document.getElementById('bkin').value = t; document.getElementById('bkin').select(); toast('Select all and copy the text in the box'); } };
+    document.getElementById('bkpaste').onclick = () => { const n = importPacked(document.getElementById('bkin').value);
+      if (n < 0) toast("That doesn't look like a backup. Copy the whole thing and try again."); else { toast('Brought in ' + (n > 0 ? n + ' new item' + (n===1?'':'s') : 'the backup')); go('list'); } };
+    document.getElementById('cf').onsubmit = e => { e.preventDefault(); const n = document.getElementById('cn').value.trim(); if (!n) return;
+      data.cats.push({id: uid(), name: n, ic: document.getElementById('ci').value.trim() || '🏷️', o: data.cats.length, c: now(), u: now()}); save(); render(); toast('Added ' + n); };
+  }
+
+  // ---------- backup / move: everything packed into one link or code ----------
+  const b64e = str => btoa(unescape(encodeURIComponent(str))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  const b64d = str => decodeURIComponent(escape(atob(str.replace(/-/g,'+').replace(/_/g,'/'))));
+  function packData(){ return b64e(JSON.stringify({items: data.items, cats: data.cats})); }
+  function importPacked(code){
+    let d = null; try { d = JSON.parse(b64d(String(code).trim().replace(/^.*#import=/, ''))); } catch(e){}
+    if (!d || !Array.isArray(d.items)) return -1;
+    const before = live(data.items).length;
+    mergeList(data.items, d.items, 'maint'); mergeList(data.cats, d.cats || [], null);
+    save(); return live(data.items).length - before;
+  }
+  window.__cpdMoveLink = () => 'https://joebarcey.github.io/home-hub/costperday.html' + (SYNC_URL ? '?sync=' + SYNC_URL : '') + '#import=' + packData();
+  if (/^#import=/.test(location.hash)) {
+    const n = importPacked(location.hash);
+    try { history.replaceState(null, '', location.pathname + location.search); } catch(e){}
+    setTimeout(() => toast(n < 0 ? "That link didn't work. Try copying it again." : 'Brought in your items' + (n > 0 ? ' (' + n + ' new)' : '')), 300);
+  }
+  let toastT = null;
+  function toast(m){ const t = document.getElementById('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => t.style.display = 'none', 2600); }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { sync(); render(); } });
+  setInterval(() => { if (document.visibilityState !== 'hidden') sync(); }, 20000);
+  render(); sync();
+})();
+</script>
+</body>
+</html>
