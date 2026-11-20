@@ -47,6 +47,19 @@
   .section{font-size:.78rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:16px 4px 8px}
   .mrow{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
   .mrow:first-child{border-top:0} .mrow .d{flex:1} .mrow small{display:block;color:var(--muted)}
+  .mini{background:var(--hero);color:#fff;border-radius:18px;padding:12px 14px;margin-bottom:12px;display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center}
+  .mini .mtop small{display:block;opacity:.85;font-size:.78rem} .mini .mtop b{font-size:1.65rem;letter-spacing:-.02em;line-height:1.1;white-space:nowrap} .mini .mtop b span{font-size:.8rem;font-weight:600}
+  .mini .mgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;border-left:1px solid rgba(255,255,255,.25);padding-left:14px}
+  .mini .mgrid b{display:block;font-size:.95rem} .mini .mgrid small{opacity:.8;font-size:.72rem}
+  .pcard{display:block;width:100%;text-align:left;background:var(--card);border:1.5px solid var(--line);border-radius:18px;padding:0;margin-bottom:12px;overflow:hidden;cursor:pointer}
+  .pimg{position:relative;height:170px;background:#2a3a35 center/cover no-repeat;display:flex;align-items:center;justify-content:center}
+  .pimg.none{background:linear-gradient(135deg,var(--accent-soft),var(--line))}
+  .pemoji{font-size:3.2rem;opacity:.9;margin-bottom:28px}
+  .pover{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;gap:10px;padding:26px 14px 10px;background:linear-gradient(transparent,rgba(0,0,0,.72));color:#fff}
+  .pimg.none .pover{background:linear-gradient(transparent,rgba(0,0,0,.45))}
+  .pname{flex:1;font-weight:800;font-size:1.15rem;line-height:1.2;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .pcost{text-align:right;white-space:nowrap} .pcost b{display:block;font-size:1.25rem;text-shadow:0 1px 3px rgba(0,0,0,.5)} .pcost small{font-size:.7rem;opacity:.9}
+  .pmeta{padding:9px 14px 11px;font-size:.84rem;color:var(--muted)}
   .seg{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--bg);border-radius:12px;padding:4px}
   .seg button{border:0;background:none;border-radius:9px;padding:9px 2px;font-weight:700;font-size:.82rem;color:var(--muted);cursor:pointer}
   .seg button[aria-checked="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
@@ -294,18 +307,25 @@
       const S = { perDay: (a,b) => calc(b).perDay - calc(a).perDay, total: (a,b) => calc(b).total - calc(a).total,
         newest: (a,b) => (parseDate(b.bought)||0) - (parseDate(a.bought)||0), name: (a,b) => a.name.localeCompare(b.name) };
       const list = scope.slice().sort(S[sortBy]);
-      app.innerHTML = header(f ? f.ic + ' ' + esc(f.name) : 'All items', true) + tabs + hero +
+      const n = Math.max(1, scope.length), T = scope.reduce((s,i) => s + calc(i).target, 0);
+      const mini = mode==='value'
+        ? `<div class="mini" style="background:#3d4a5c"><div class="mtop"><small>Sell for at least</small><b>${money(T, 0)}</b></div>
+            <div class="mgrid"><div><b>${money(V, 0)}</b><small>worth now</small></div><div><b>${money(Math.max(0, T - V), 0)}</b><small>above worth</small></div>
+            <div><b>${money(spentOf(scope), 0)}</b><small>put in</small></div><div><b>${scope.length}</b><small>item${scope.length===1?'':'s'}</small></div></div></div>`
+        : `<div class="mini"><div class="mtop"><small>${f ? esc(f.name) : 'Everything'} cost${f ? '' : 's'} you</small><b>${perDayFmt(day)}<span>/day</span></b></div>
+            <div class="mgrid"><div><b>${money(day * 30.44, 0)}</b><small>a month</small></div><div><b>${money(day * 365.25, 0)}</b><small>a year</small></div>
+            <div><b>${money(spentOf(scope), 0)}</b><small>spent</small></div><div><b>${perDayFmt(day / n)}</b><small>avg / item</small></div></div></div>`;
+      app.innerHTML = header(f ? f.ic + ' ' + esc(f.name) : 'All items', true) + tabs + mini +
         `<div class="sortbar"><span>${list.length} item${list.length===1?'':'s'}</span><label>Sort: <select id="sort">
           ${[['perDay','Cost per day'],['total','Total cost'],['newest','Newest'],['name','A–Z']].map(([v,l]) => `<option value="${v}" ${sortBy===v?'selected':''}>${l}</option>`).join('')}</select></label></div>` +
-        (list.length ? list.map(i => { const c = calc(i), k = cat(i.cat);
-          if (mode==='value') return `<button class="item" data-open="${i.id}"><span class="ic">${k.ic}</span>
-            <span class="mid"><span class="nm" style="display:block">${esc(i.name)}</span>
-            <span class="meta">Worth about ${money(c.value, 0)}${c.maint ? ' · + ' + money(c.above, 0) + ' of upkeep to recover' : ''}</span></span>
-            <span class="cpd"><b>${money(c.target, 0)}</b><span>sell for at least</span></span></button>`;
-          return `<button class="item" data-open="${i.id}"><span class="ic">${k.ic}</span>
-            <span class="mid"><span class="nm" style="display:block">${esc(i.name)}</span>
-            <span class="meta">${money(c.total, 0)} over ${ownedText(c.days)}${c.maint ? ' · incl. ' + money(c.maint, 0) + ' upkeep' : ''}${c.ongoing ? ' · ' + money(c.ongoing, 0) + '/mo ongoing' : ''}</span></span>
-            <span class="cpd"><b>${perDayFmt(c.perDay)}</b><span>per day</span></span></button>`; }).join('')
+        (list.length ? list.map(i => { const c = calc(i), k = cat(i.cat), url = photoUrl(i);
+          const big = mode==='value' ? money(c.target, 0) : perDayFmt(c.perDay), unit = mode==='value' ? 'sell for at least' : 'per day';
+          const meta = mode==='value' ? 'Worth about ' + money(c.value, 0) + (c.maint ? ' · + ' + money(c.above, 0) + ' upkeep to recover' : '')
+            : money(c.total, 0) + ' over ' + ownedText(c.days) + (c.maint ? ' · incl. ' + money(c.maint, 0) + ' upkeep' : '') + (c.ongoing ? ' · ' + money(c.ongoing, 0) + '/mo ongoing' : '');
+          return `<button class="pcard" data-open="${i.id}">
+            <div class="pimg${url ? '' : ' none'}" data-photo="${i.id}" style="${url ? 'background-image:url(' + url + ')' : ''}">${url ? '' : `<span class="pemoji">${k.ic}</span>`}
+              <div class="pover"><span class="pname">${esc(i.name)}</span><span class="pcost"><b>${big}</b><small>${unit}</small></span></div></div>
+            <div class="pmeta">${meta}</div></button>`; }).join('')
           : `<div class="empty">Nothing here yet.</div>`) +
         `<button class="btn fab" id="add" style="background:var(--hero)">＋ Add item</button><div style="height:70px"></div>`;
       document.getElementById('back').onclick = () => { filter = 'home'; render(); window.scrollTo(0,0); };
@@ -314,6 +334,7 @@
     app.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; render(); window.scrollTo(0,0); });
     app.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { mode = b.dataset.mode; try { localStorage.setItem('costperday-v1-mode', mode); } catch(e){} render(); });
     app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => go('item', b.dataset.open));
+    loadPhotos();
     document.getElementById('add').onclick = () => go('edit', null);
     const cb = document.getElementById('cats'); if (cb) cb.onclick = () => go('cats');
   }
@@ -322,7 +343,9 @@
     const it = live(data.items).find(x => x.id === openId); if (!it) return go('list');
     const c = calc(it), k = cat(it.cat), ms = live(it.maint).sort((a,b) => ((kindOf(b)!=='once') - (kindOf(a)!=='once')) || (parseDate(b.date)||0) - (parseDate(a.date)||0));
     const pct = c.total > 0 ? Math.min(100, Math.round(num(it.price) / (num(it.price) + c.maint) * 100)) : 100;
+    const purl = photoUrl(it);
     app.innerHTML = header(esc(it.name), true) +
+      (purl ? `<div class="pimg" data-photo="${it.id}" style="height:210px;border-radius:18px;margin-bottom:12px;background-image:url(${purl})"></div>` : '') +
       `<div class="card" style="text-align:center"><div style="color:var(--muted);font-size:.9rem">${k.ic} ${esc(k.name)} · owned for ${ownedText(c.days)}</div>
         <div class="big2" style="margin:8px 0 4px">${perDayFmt(c.perDay)}</div><div style="color:var(--muted)">per day</div></div>
       <div class="card stat">
@@ -389,6 +412,7 @@
       <div class="two" style="margin-top:14px"><button class="btn ghost" id="edit">✏️ Edit</button>
         <button class="btn danger" id="del">${armed==='item' ? 'Tap again to delete' : '🗑 Delete'}</button></div>`;
     document.getElementById('back').onclick = () => go('list');
+    if (!purl && it.photo) loadPhotos();
     document.getElementById('edit').onclick = () => go('edit', it.id);
     document.getElementById('cvsave').onclick = () => {
       const v = num(document.getElementById('cvin').value);
@@ -462,16 +486,29 @@
         <label>Category<select id="c">${cats.map(c => `<option value="${c.id}" ${v.cat===c.id?'selected':''}>${c.ic} ${esc(c.name)}</option>`).join('')}</select></label>
         <div class="two"><label>Price paid<input id="p" inputmode="decimal" value="${v.price===''?'':num(v.price)}" placeholder="0.00" required></label>
           <label>Date bought<input id="b" type="date" value="${esc(v.bought)}" required></label></div>
+        <div><div style="font-size:.85rem;font-weight:600;color:var(--muted);margin-bottom:4px">Photo (optional)</div>
+          <div class="pimg${photoUrl(it) ? '' : ' none'}" id="phprev" style="height:150px;border-radius:14px;${photoUrl(it) ? 'background-image:url(' + photoUrl(it) + ')' : ''}">${photoUrl(it) ? '' : '<span class="pemoji">📷</span>'}</div>
+          <div class="two" style="margin-top:8px"><label class="btn ghost" style="text-align:center;cursor:pointer">📷 ${photoUrl(it) ? 'Change' : 'Add'} photo<input type="file" id="phin" accept="image/*" hidden></label>
+            <button type="button" class="btn ghost" id="phdel" ${photoUrl(it) ? '' : 'disabled style="opacity:.4"'}>Remove photo</button></div></div>
         <label>Notes (optional)<textarea id="no" rows="2" placeholder="Serial number, where it's from, warranty…">${esc(v.note||'')}</textarea></label>
         <button class="btn wide">${it ? 'Save' : 'Add item'}</button>
       </form>`;
     document.getElementById('back').onclick = () => it ? go('item', it.id) : go('list');
+    let newPhoto = null;   // data URL, '' to remove, null for no change
+    const pv = document.getElementById('phprev');
+    document.getElementById('phin').onchange = async e => {
+      const fl = e.target.files && e.target.files[0]; if (!fl) return;
+      try { newPhoto = await shrinkPhoto(fl); pv.classList.remove('none'); pv.style.backgroundImage = 'url(' + newPhoto + ')'; pv.innerHTML = ''; }
+      catch(er){ toast("Couldn't open that picture. Try another one."); }
+    };
+    document.getElementById('phdel').onclick = () => { newPhoto = ''; pv.classList.add('none'); pv.style.backgroundImage = ''; pv.innerHTML = '<span class="pemoji">📷</span>'; };
     document.getElementById('f').onsubmit = e => {
       e.preventDefault();
       const x = it || {id: uid(), maint: [], c: now()};
       x.name = document.getElementById('n').value.trim(); x.cat = document.getElementById('c').value;
       x.price = num(document.getElementById('p').value); x.bought = document.getElementById('b').value;
       x.note = document.getElementById('no').value.trim();
+      if (newPhoto !== null) savePhoto(x, newPhoto);
       touch(x); if (!it) data.items.push(x);
       save(); toast(it ? 'Saved' : 'Added'); go('item', x.id);
     };
@@ -504,6 +541,44 @@
       if (n < 0) toast("That doesn't look like a backup. Copy the whole thing and try again."); else { toast('Brought in ' + (n > 0 ? n + ' new item' + (n===1?'':'s') : 'the backup')); go('list'); } };
     document.getElementById('cf').onsubmit = e => { e.preventDefault(); const n = document.getElementById('cn').value.trim(); if (!n) return;
       data.cats.push({id: uid(), name: n, ic: document.getElementById('ci').value.trim() || '🏷️', o: data.cats.length, c: now(), u: now()}); save(); render(); toast('Added ' + n); };
+  }
+
+  // ---------- photos: small JPEGs, kept on this phone and in a private Drive folder (through the Google script) ----------
+  const PK = id => 'cpd-ph-' + id;
+  function photoUrl(it){
+    if (!it || !it.photo) return '';
+    try { const c = JSON.parse(localStorage.getItem(PK(it.id)) || 'null'); if (c && c.v === it.photo) return c.d; } catch(e){}
+    return '';
+  }
+  const asked = {};
+  function loadPhotos(){
+    live(data.items).forEach(it => {
+      if (!it.photo || photoUrl(it) || asked[it.id + ':' + it.photo] || !SYNC_URL) return;
+      asked[it.id + ':' + it.photo] = 1;
+      fetch(SYNC_URL + '?action=photo&id=' + encodeURIComponent(it.id) + '&t=' + now(), {cache:'no-store'}).then(r => r.json()).then(d => {
+        if (!d || !d.ok || !d.data) return;
+        const url = 'data:image/jpeg;base64,' + d.data;
+        try { localStorage.setItem(PK(it.id), JSON.stringify({v: it.photo, d: url})); } catch(e){}
+        document.querySelectorAll(`[data-photo="${it.id}"]`).forEach(el => { el.classList.remove('none'); el.style.backgroundImage = 'url(' + url + ')'; const em = el.querySelector('.pemoji'); if (em) em.remove(); });
+      }).catch(() => {});
+    });
+  }
+  // Shrink a picture from the camera or library to a 4:3 JPEG about 50 KB
+  function shrinkPhoto(file){
+    return new Promise((res, rej) => {
+      const rd = new FileReader();
+      rd.onload = () => { const img = new Image(); img.onload = () => {
+        const W = 720, H = 540, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+        const sc = Math.max(W / img.width, H / img.height), w = img.width * sc, h = img.height * sc;
+        cv.getContext('2d').drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+        res(cv.toDataURL('image/jpeg', 0.7)); }; img.onerror = rej; img.src = rd.result; };
+      rd.onerror = rej; rd.readAsDataURL(file);
+    });
+  }
+  function savePhoto(it, url){
+    if (url) { it.photo = now(); try { localStorage.setItem(PK(it.id), JSON.stringify({v: it.photo, d: url})); } catch(e){} }
+    else { it.photo = 0; try { localStorage.removeItem(PK(it.id)); } catch(e){} }
+    if (SYNC_URL) fetch(SYNC_URL + '?action=photo', {method:'POST', body: JSON.stringify({id: it.id, data: url ? url.split(',')[1] : ''})}).catch(() => {});
   }
 
   // ---------- backup / move: everything packed into one link or code ----------
