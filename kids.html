@@ -64,6 +64,7 @@
   .phpick{display:block;text-align:center;cursor:pointer;margin-top:8px}
   #phview{position:fixed;inset:0;background:rgba(0,0,0,.93);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;color:#ccc;font-size:.85rem;gap:10px}
   #phview img{max-width:100%;max-height:88vh;object-fit:contain}
+  .rep{display:inline-block;font-size:.72rem;font-weight:700;padding:1px 7px;border-radius:99px;background:rgba(128,128,128,.15);margin-left:6px;vertical-align:middle;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -112,6 +113,29 @@
   let S = { chores:[], r:{}, phone:'', autoText:true, dirty:false };
   try { Object.assign(S, JSON.parse(localStorage.getItem(LS) || '{}')); } catch(e){}
   function store(){ try { localStorage.setItem(LS, JSON.stringify(S)); } catch(e){} }
+
+  // ---------- repeating tasks: a rule (days of the week + time) makes one task each time it comes due ----------
+  // Both apps work out the same tasks with the same ids (rule id + date), so they always match.
+  const ymd = d => d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+  function repWindow(r){
+    const t = now(), d0 = new Date(t); d0.setHours(0,0,0,0);
+    const [hh, mm] = String(r.time || '20:00').split(':').map(Number);
+    let prev = 0, next = 0;
+    for (let i = -8; i <= 8; i++){
+      const day = new Date(d0); day.setDate(d0.getDate() + i);
+      if (!(r.days || []).includes(day.getDay())) continue;
+      day.setHours(hh, mm, 0, 0); const due = day.getTime();
+      if (due <= t) { if (due >= (r.c || 0)) prev = due; } else if (!next) next = due;
+    }
+    // the last one that came due (since the rule was made) and the next one coming
+    return [prev, next].filter(Boolean).map(due => ({id: r.id + '-' + ymd(new Date(due)), rep: r.id, to: r.to, text: r.text, note: r.note || '', due, lead: r.lead || 60}));
+  }
+  const DAYN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  function repText(r){
+    const [hh, mm] = String(r.time || '20:00').split(':').map(Number), d = new Date(); d.setHours(hh, mm, 0, 0);
+    const tm = d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}), ds = r.days || [];
+    return (ds.length === 7 ? 'Every day' : ds.length === 1 ? 'Every ' + DAYN[ds[0]] : ds.map(x => DAYN[x].slice(0,3)).join(', ')) + ' · ' + tm;
+  }
 
   // ---------- task photos: small JPEGs kept on this phone and in a private Drive folder (through the Google script) ----------
   const phMem = {}, phAsked = {};
@@ -172,21 +196,29 @@
     o.onclick = () => o.remove(); document.body.appendChild(o);
   });
 
-  let status = SYNC_URL ? '' : 'none', last = 0, busy = false, again = false;
+  let status = SYNC_URL ? '' : 'none', last = 0, busy = false, again = false; const ensured = {};
   async function sync(){
     if (!SYNC_URL) return;
     if (busy){ again = true; return; }
     busy = true;
     try {
       const k = await (await fetch(SYNC_URL + '?action=get&space=kitchen&t=' + now(), {cache:'no-store'})).json();
-      S.chores = ((k && k.chores) || []).filter(c => c.to===KID && !c.del);
+      const all = ((k && k.chores) || []).filter(c => c.to===KID), win = [];
+      ((k && k.repeats) || []).filter(r => r.to===KID && !r.del).forEach(r => repWindow(r).forEach(x => win.push(x)));
+      const winIds = new Set(win.map(x => x.id)), have = new Set(all.map(c => c.id));
+      // Mom's tasks, plus this week's repeating ones (older repeats that were missed drop off)
+      S.chores = all.filter(c => !c.del && c.status !== 'missed' && (!c.rep || winIds.has(c.id))).concat(win.filter(x => !have.has(x.id)));
+      const known = new Set(all.filter(c => !c.del).map(c => c.id).concat([...winIds]));
       const mine = await (await fetch(SYNC_URL + '?action=get&space=kid' + KID + '&t=' + now(), {cache:'no-store'})).json();
       const rr = (mine && mine.r) || {};
       Object.keys(rr).forEach(id => { if (!S.r[id] || (rr[id].u||0) > (S.r[id].u||0)) S.r[id] = rr[id]; });
       // anything new gets marked as seen, so Mom knows it reached the phone
       S.chores.forEach(c => { if (!S.r[c.id]) { S.r[c.id] = {s:'seen', u:now()}; S.dirty = true; } });
       // forget replies to tasks Mom deleted
-      Object.keys(S.r).forEach(id => { if (!S.chores.some(c=>c.id===id)) { delete S.r[id]; S.dirty = true; } });
+      Object.keys(S.r).forEach(id => { if (!known.has(id)) { delete S.r[id]; S.dirty = true; } });
+      // make sure lock-screen reminders are set for the next repeating ones (the server skips ones already set)
+      S.chores.forEach(c => { if (c.rep && c.due > now() && stOf(c) !== 'done' && !ensured[c.id]) { ensured[c.id] = 1;
+        fetch(SYNC_URL + '?action=push', {method:'POST', body: JSON.stringify({op:'ensure', id:c.id, kid:KID, text:c.text, due:c.due, lead:c.lead})}).catch(()=>{}); } });
       if (S.dirty || JSON.stringify(rr) !== JSON.stringify(S.r)) {
         const p = await fetch(SYNC_URL + '?space=kid' + KID, {method:'POST', body: JSON.stringify({r:S.r})});
         if (p.ok) S.dirty = false;
@@ -252,7 +284,7 @@
       const st = stOf(c), late = c.due && c.due < now() && st!=='done', isSoon = !late && c.due && now() >= remindAt(c) && st!=='done';
       const r = S.r[c.id] || {};
       return `<div class="card ${late?'late':isSoon?'soon':''} ${st==='new'||st==='seen'?(st==='new'?'new':''):''} ${st==='done'?'isdone':''}">
-        <div class="title">${esc(c.text)}</div>
+        <div class="title">${esc(c.text)}${c.rep ? '<span class="rep">🔁 repeats</span>' : ''}</div>
         ${c.note ? `<div class="note">${esc(c.note)}</div>` : ''}
         ${phHtml('task-' + c.id + '-m', c.ph, '📷 Photo from Mom')}
         <div class="due"><span class="when">⏰ ${fmtDue(c.due)}</span>${c.due && st!=='done' ? `<span class="rel">${rel(c.due)}</span>` : ''}</div>

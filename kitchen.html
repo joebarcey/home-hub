@@ -50,7 +50,7 @@
   .kform textarea{resize:vertical;min-height:0;height:3.4em}
   .chips{display:flex;gap:6px} .chips .chip{flex:1}
   .krow{display:grid;grid-template-columns:1.4fr 1fr;gap:8px}
-  .krow label{display:grid;gap:3px;font-size:.8rem;color:var(--muted);font-weight:600}
+  .krow label,.kreprow{display:grid;gap:3px;font-size:.8rem;color:var(--muted);font-weight:600}
   .kcard{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:8px}
   .kcard.knew{border-color:#e0a400;box-shadow:0 0 0 2px rgba(255,213,74,.35)}
   .kcard.kdone .ktext{color:var(--done);text-decoration:line-through}
@@ -162,6 +162,7 @@
   .phpick{display:block;text-align:center;cursor:pointer;margin-top:8px}
   #phview{position:fixed;inset:0;background:rgba(0,0,0,.93);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;color:#ccc;font-size:.85rem;gap:10px}
   #phview img{max-width:100%;max-height:88vh;object-fit:contain}
+  .rep{display:inline-block;font-size:.72rem;font-weight:700;padding:1px 7px;border-radius:99px;background:rgba(128,128,128,.15);margin-left:6px;vertical-align:middle;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -194,7 +195,7 @@
   }
   const SYNC_URL = findSyncUrl();
 
-  const LISTS = ['todo','groceries','shopping','recipes','honeydo','chores'];
+  const LISTS = ['todo','groceries','shopping','recipes','honeydo','chores','repeats'];
   const TABS = [
     {id:'todo',      ic:'✓',  label:'To-Do'},
     {id:'groceries', ic:'🥕', label:'Weekly Shopping'},
@@ -499,6 +500,7 @@
       mergeInto(data, remote);
       await pullHome();
       await pullKids();
+      if (rollRepeats()) setDirty(true);
       store();
       if (dirty || fingerprint(data) !== fingerprint(remote||{})){
         setDirty(false);
@@ -881,7 +883,7 @@
     showNews();
     renderNav(); showStatus();
   }
-  const CH_ST = {seen:'👀 Seen', onit:'👍 On it', done:'✔ Done', help:'✋ Needs help'};
+  const CH_ST = {seen:'👀 Seen', onit:'👍 On it', done:'✔ Done', help:'✋ Needs help', missed:'✖ Missed'};
   function showNews(){
     const kn = live(data.chores).filter(c=>c.news);
     if (kn.length && tab!=='kids'){
@@ -974,6 +976,57 @@
     const o = document.createElement('div'); o.id = 'phview'; o.innerHTML = '<img alt=""><div>Tap to close</div>'; o.querySelector('img').src = d;
     o.onclick = () => o.remove(); document.body.appendChild(o);
   });
+
+  // ---------- repeating tasks: a rule (days of the week + time) makes one task each time it comes due ----------
+  // Both apps work out the same tasks with the same ids (rule id + date), so they always match.
+  const ymd = d => d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+  function repWindow(r){
+    const t = now(), d0 = new Date(t); d0.setHours(0,0,0,0);
+    const [hh, mm] = String(r.time || '20:00').split(':').map(Number);
+    let prev = 0, next = 0;
+    for (let i = -8; i <= 8; i++){
+      const day = new Date(d0); day.setDate(d0.getDate() + i);
+      if (!(r.days || []).includes(day.getDay())) continue;
+      day.setHours(hh, mm, 0, 0); const due = day.getTime();
+      if (due <= t) { if (due >= (r.c || 0)) prev = due; } else if (!next) next = due;
+    }
+    // the last one that came due (since the rule was made) and the next one coming
+    return [prev, next].filter(Boolean).map(due => ({id: r.id + '-' + ymd(new Date(due)), rep: r.id, to: r.to, text: r.text, note: r.note || '', due, lead: r.lead || 60}));
+  }
+  const DAYN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  function repText(r){
+    const [hh, mm] = String(r.time || '20:00').split(':').map(Number), d = new Date(); d.setHours(hh, mm, 0, 0);
+    const tm = d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}), ds = r.days || [];
+    return (ds.length === 7 ? 'Every day' : ds.length === 1 ? 'Every ' + DAYN[ds[0]] : ds.map(x => DAYN[x].slice(0,3)).join(', ')) + ' · ' + tm;
+  }
+  // Make this week's tasks from each repeating rule; older ones nobody finished are marked missed
+  const ensured = {};
+  function rollRepeats(){
+    let ch = false; const t = now();
+    live(data.repeats).forEach(r => {
+      const win = repWindow(r), keep = new Set(win.map(x => x.id));
+      win.forEach(x => { if (!data.chores.some(c => c.id === x.id)) { data.chores.push(Object.assign(x, {status:'new', c:t, u:t})); ch = true; } });
+      live(data.chores).forEach(c => {
+        if (c.rep !== r.id) return;
+        if (!keep.has(c.id) && c.status !== 'done' && c.status !== 'missed' && c.due < t) { c.status = 'missed'; c.u = t; ch = true; pushChore('cancel', c); }
+        if (keep.has(c.id) && c.due > t && c.status !== 'done' && !ensured[c.id]) { ensured[c.id] = 1; pushChore('ensure', c); }
+      });
+    });
+    // tidy up: finished or missed repeats over a week old, and old deleted ones
+    const before = data.chores.length;
+    data.chores.forEach(c => { if (c.rep && !c.del && (c.status === 'done' || c.status === 'missed') && c.due < t - 7*864e5) { c.del = true; c.u = t; ch = true; } });
+    data.chores = data.chores.filter(c => !(c.rep && c.del && (c.due||0) < t - 30*864e5));
+    return ch || data.chores.length !== before;
+  }
+  // Melissa's chore board, ready to add with one tap
+  const BOARD = [
+    {to:'k1', text:'Trash & recycling', days:[0,1,2,3,4,5,6], time:'20:00', lead:60},
+    {to:'k1', text:'Trash to the curb', days:[1], time:'20:00', lead:60},
+    {to:'k1', text:'Cans back to the house', days:[2], time:'18:00', lead:60},
+    {to:'k1', text:'Vacuum all carpet', days:[4], time:'20:00', lead:1440},
+    {to:'k2', text:'Bathroom', days:[4], time:'20:00', lead:1440},
+    {to:'k2', text:'Kitchen wipe down', days:[4], time:'20:00', lead:1440}];
+  let boardOff = false; try { boardOff = !!localStorage.getItem(LS + '-board'); } catch(e){}
   let kNewPhoto = '';   // picture waiting to go with the next task
   const goneChore = c => { if (!c) return; remove(c); pushChore('cancel', c); if (c.ph) phDel('task-' + c.id + '-m'); if (c.kph) phDel('task-' + c.id + '-k'); };
   function renderKids(){
@@ -981,7 +1034,7 @@
     const card = c => {
       const st = c.status || 'new', late = c.due && c.due < now() && st!=='done';
       return `<div class="kcard ${st==='done'?'kdone':''} ${c.news?'knew':''}">
-        <div class="ktop"><b class="ktext">${esc(c.text)}</b><button class="x ${armed===c.id?'armed':''}" data-kdel="${c.id}" aria-label="Delete ${esc(c.text)}">${armed===c.id?'Delete?':'✕'}</button></div>
+        <div class="ktop"><b class="ktext">${esc(c.text)}${c.rep ? '<span class="rep">🔁</span>' : ''}</b><button class="x ${armed===c.id?'armed':''}" data-kdel="${c.id}" aria-label="Delete ${esc(c.text)}">${armed===c.id?'Delete?':'✕'}</button></div>
         ${c.note?`<div class="hdnote">${esc(c.note)}</div>`:''}
         <div class="kmeta"><span class="kdue ${late?'klate':''}">⏰ ${fmtDue(c.due)}${late?' · late':''}</span><span class="kst kst-${st}">${CH_ST[st]||'📨 Sent'}</span></div>
         ${c.reply?`<div class="kreply">“${esc(c.reply)}”</div>`:''}
@@ -991,19 +1044,27 @@
     };
     const lists = KIDS.map(k=>{
       const all = live(data.chores).filter(c=>c.to===k.id);
-      const open = all.filter(c=>c.status!=='done').sort((a,b)=>(a.due||9e15)-(b.due||9e15));
-      const done = all.filter(c=>c.status==='done').sort((a,b)=>(b.ru||0)-(a.ru||0));
+      const open = all.filter(c=>c.status!=='done' && c.status!=='missed').sort((a,b)=>(a.due||9e15)-(b.due||9e15));
+      const done = all.filter(c=>c.status==='done' || c.status==='missed').sort((a,b)=>(b.ru||b.due||0)-(a.ru||a.due||0));
+      const reps = live(data.repeats).filter(r=>r.to===k.id);
       return `<div class="section">${esc(k.name)} · ${open.length} open</div>` +
         (open.length ? open.map(card).join('') : `<div class="empty" style="padding:10px">Nothing waiting on ${esc(k.name)}.</div>`) +
         (done.length ? `<details class="kdone-list"><summary>✔ ${done.length} done</summary>${done.map(card).join('')}
-          <button class="btn ghost" data-kclear="${k.id}" style="margin-top:6px">${armed==='kc'+k.id?'Tap again to clear':'Clear done'}</button></details>` : '');
+          <button class="btn ghost" data-kclear="${k.id}" style="margin-top:6px">${armed==='kc'+k.id?'Tap again to clear':'Clear done'}</button></details>` : '') +
+        (reps.length ? `<details class="kdone-list"><summary>🔁 ${reps.length} repeating</summary>${reps.map(r=>`<div class="kcard"><div class="ktop"><b class="ktext">${esc(r.text)}</b>
+          <button class="x ${armed==='r'+r.id?'armed':''}" data-rdel="${r.id}" aria-label="Stop repeating ${esc(r.text)}">${armed==='r'+r.id?'Stop it?':'✕'}</button></div>
+          <div class="kmeta"><span class="kdue">🔁 ${repText(r)}</span></div></div>`).join('')}</details>` : '');
     }).join('');
-    app.innerHTML = header('Kids') + `<form class="kform" data-kadd>
+    const offer = !boardOff && !live(data.repeats).length ? `<div class="kcard" style="border-color:var(--accent)"><b>🔁 Add the chore board?</b>
+        ${BOARD.map(b=>`<div class="kmeta" style="margin-top:4px"><span><b>${esc(kidName(b.to))}:</b> ${esc(b.text)}</span><span class="kdue">${repText(b)}</span></div>`).join('')}
+        <div class="krow" style="margin-top:8px"><button class="btn ghost" type="button" id="boardno">No thanks</button><button class="btn" type="button" id="boardyes">Add these</button></div></div>` : '';
+    app.innerHTML = header('Kids') + offer + `<form class="kform" data-kadd>
         <div class="chips" role="radiogroup" aria-label="Send to">${KIDS.concat([{id:'both', name:'Both'}]).map(k=>`<button type="button" class="chip" role="radio" aria-checked="${kidFor===k.id}" data-kfor="${k.id}">${esc(k.name)}</button>`).join('')}</div>
         <input id="newi" type="text" placeholder="Task, like Take out the trash" aria-label="Task" autocomplete="off" enterkeyhint="next">
         <textarea id="knote" rows="2" placeholder="Details (optional)" aria-label="Details"></textarea>
         <div class="krow"><label>Due<input id="kdue" type="datetime-local" value="${localInput(def)}"></label>
           <label>Remind<select id="klead">${LEADS.map(([m,l])=>`<option value="${m}" ${m===60?'selected':''}>${l}</option>`).join('')}</select></label></div>
+        <label class="kreprow">Repeats<select id="krep"><option value="">Doesn’t repeat</option><option value="day">Every day</option><option value="week">Every week (same day)</option></select></label>
         <div id="kphprev">${kNewPhoto ? `<div class="ph phsm" style="background-image:url(${kNewPhoto})"><span>📷 Goes with this task</span></div>` : ''}</div>
         <div class="krow"><label class="btn ghost phpick" style="margin:0">📷 ${kNewPhoto ? 'Change photo' : 'Add photo'}<input type="file" id="kphin" accept="image/*" hidden></label>
           ${kNewPhoto ? '<button type="button" class="btn ghost" id="kphx">Remove photo</button>' : ''}</div>
@@ -1017,6 +1078,14 @@
       const v=document.getElementById('kdue').value, due = v ? new Date(v).getTime() : null;
       const lead = +document.getElementById('klead').value || 60, note = document.getElementById('knote').value.trim();
       const to = kidFor==='both' ? KIDS.map(k=>k.id) : [kidFor];
+      const rp = document.getElementById('krep').value;
+      if (rp){
+        if (!due){ toast('Pick a due time so it knows when to repeat.'); return; }
+        const dd = new Date(due), time = String(dd.getHours()).padStart(2,'0') + ':' + String(dd.getMinutes()).padStart(2,'0');
+        const days = rp==='day' ? [0,1,2,3,4,5,6] : [dd.getDay()];
+        to.forEach(k=>data.repeats.push({id:uid(), to:k, text:t, note, days, time, lead, c:now() - 60000, u:now()}));
+        rollRepeats(); kNewPhoto = ''; save(); render(); toast('🔁 ' + repText({days, time})); return;
+      }
       const pic = kNewPhoto; kNewPhoto = '';
       to.forEach(k=>{ const c={id:uid(), to:k, text:t, note, due, lead, status:'new', c:now(), u:now()};
         if (pic) { c.ph = now(); phSend('task-' + c.id + '-m', pic, c.ph).catch(()=>toast('The photo didn’t send. Check your signal.')); }
@@ -1029,9 +1098,20 @@
       else armed=id;
       render();
     });
+    app.querySelectorAll('[data-rdel]').forEach(b=>b.onclick=()=>{
+      const id=b.dataset.rdel, r=data.repeats.find(x=>x.id===id);
+      if (armed==='r'+id){ remove(r); live(data.chores).filter(c=>c.rep===id && c.status!=='done' && c.status!=='missed').forEach(goneChore); armed=null; save(); toast('Stopped repeating'); }
+      else armed='r'+id;
+      render(); const d=app.querySelector(`[data-rdel="${id}"]`); if (d) d.closest('details').open=true;
+    });
+    const by=document.getElementById('boardyes'); if (by) by.onclick=()=>{
+      BOARD.forEach(b=>data.repeats.push(Object.assign({id:uid(), note:'', c:now() - 60000, u:now()}, b)));
+      rollRepeats(); save(); render(); toast('🔁 Chore board added');
+    };
+    const bn=document.getElementById('boardno'); if (bn) bn.onclick=()=>{ boardOff=true; try{ localStorage.setItem(LS+'-board','1'); }catch(e){} render(); };
     app.querySelectorAll('[data-kclear]').forEach(b=>b.onclick=()=>{
       const k=b.dataset.kclear;
-      if (armed==='kc'+k){ live(data.chores).filter(c=>c.to===k && c.status==='done').forEach(goneChore); armed=null; save(); }
+      if (armed==='kc'+k){ live(data.chores).filter(c=>c.to===k && (c.status==='done' || c.status==='missed')).forEach(goneChore); armed=null; save(); }
       else armed='kc'+k;
       render(); const d=app.querySelector(`[data-kclear="${k}"]`); if (d) d.closest('details').open=true;
     });
