@@ -613,6 +613,7 @@
   }
   const asked = {};
   function loadPhotos(){
+    pushPending();
     live(data.items).forEach(it => {
       if (!it.photo || photoUrl(it) || asked[it.id + ':' + it.photo] || !SYNC_URL) return;
       asked[it.id + ':' + it.photo] = 1;
@@ -620,6 +621,7 @@
         if (!d || !d.ok || !d.data) return;
         const url = 'data:image/jpeg;base64,' + d.data;
         try { localStorage.setItem(PK(it.id), JSON.stringify({v: it.photo, d: url})); } catch(e){}
+        markUp(it);
         document.querySelectorAll(`[data-photo="${it.id}"]`).forEach(el => { el.classList.remove('none'); el.style.backgroundImage = 'url(' + url + ')'; const em = el.querySelector('.pemoji'); if (em) em.remove(); });
       }).catch(() => {});
     });
@@ -639,7 +641,21 @@
   function savePhoto(it, url){
     if (url) { it.photo = now(); try { localStorage.setItem(PK(it.id), JSON.stringify({v: it.photo, d: url})); } catch(e){} }
     else { it.photo = 0; try { localStorage.removeItem(PK(it.id)); } catch(e){} }
-    if (SYNC_URL) fetch(SYNC_URL + '?action=photo', {method:'POST', body: JSON.stringify({id: it.id, data: url ? url.split(',')[1] : ''})}).catch(() => {});
+    if (SYNC_URL) fetch(SYNC_URL + '?action=photo', {method:'POST', body: JSON.stringify({id: it.id, data: url ? url.split(',')[1] : ''})})
+      .then(r => r.json()).then(j => { if (j && j.ok) markUp(it); else if (url) toast('Photo saved on this phone. It will back up when it can.'); }).catch(() => {});
+  }
+  // Photos saved here but not yet in Drive (no connection, or Google said no) get sent up again
+  const PUP = id => 'cpd-phup-' + id, pushed = {};
+  function markUp(it){ try { localStorage.setItem(PUP(it.id), String(it.photo)); } catch(e){} }
+  function pushPending(){
+    if (!SYNC_URL) return;
+    live(data.items).forEach(it => {
+      const u = photoUrl(it); if (!u || pushed[it.id + ':' + it.photo]) return;
+      try { if (localStorage.getItem(PUP(it.id)) === String(it.photo)) return; } catch(e){ return; }
+      pushed[it.id + ':' + it.photo] = 1;
+      fetch(SYNC_URL + '?action=photo', {method:'POST', body: JSON.stringify({id: it.id, data: u.split(',')[1]})})
+        .then(r => r.json()).then(j => { if (j && j.ok) markUp(it); }).catch(() => {});
+    });
   }
 
   // ---------- backup / move: everything packed into one link or code ----------
