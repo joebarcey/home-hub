@@ -508,6 +508,7 @@
   }
 
   // ---------- screens ----------
+  let invCount = 0, invAsked = false;
   function renderHome(){
     const rows = SECTIONS.map(s=>{
       let info='';
@@ -525,8 +526,13 @@
       return `<div class="row menu"><button class="main" data-go="${s.id}">
         <span><span class="icon">${s.icon}</span>${s.label}</span><span class="sub">${info}</span></button></div>`;
     }).join('');
-    app.innerHTML = `<header><h1>Home Hub</h1><span id="sync" class="sub"></span></header><div class="scroll">${rows}</div>`;
+    // Inventory lives in its own app (inventory.html) and shares the same Google storage
+    const inv = `<div class="row menu"><button class="main" id="inv"><span><span class="icon">📦</span>Inventory</span><span class="sub">${invCount ? invCount + ' items' : ''}</span></button></div>`;
+    app.innerHTML = `<header><h1>Home Hub</h1><span id="sync" class="sub"></span></header><div class="scroll">${rows}${inv}</div>`;
     showStatus();
+    document.getElementById('inv').onclick = () => { location.href = 'inventory.html?hub=1' + (SYNC_URL ? '&sync=' + SYNC_URL : ''); };
+    if (SYNC_URL && !invAsked) { invAsked = true; fetch(SYNC_URL + '?action=get&space=inventory&t=' + Date.now(), {cache:'no-store'}).then(r => r.json()).then(d => {
+      const n = ((d && d.items) || []).filter(i => !i.del).length; if (n !== invCount) { invCount = n; if (location.hash === '' || location.hash === '#/') render(); } }).catch(() => {}); }
     app.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>go('#/'+b.dataset.go));
     focusFirst();
   }
