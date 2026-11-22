@@ -899,7 +899,8 @@
     const block = n => `<div class="row"><button class="main block notecard${n.done?' crossed':''}" data-note="${n.id}">
       <span class="sub">${fmtDate(n.created)}${n.done?' · ✔ done':''}</span>
       <span class="preview">${noteHtml(n.text.replace(/^✓ /gm,''))}</span></button></div>`;
-    const rows = notes.map(block).join('') + (doneNotes.length ? `<div class="row"><button class="main small" id="showdone" style="justify-content:center;color:var(--good)">${showDoneNotes?'Hide':'Show'} ${doneNotes.length} done</button></div>` + (showDoneNotes?doneNotes.map(block).join(''):'') : '');
+    const rows = notes.map(block).join('') + (doneNotes.length ? `<div class="row"><button class="main small" id="showdone" style="justify-content:center;color:var(--good)">${showDoneNotes?'Hide':'Show'} ${doneNotes.length} done</button></div>` + (showDoneNotes?doneNotes.map(block).join('') +
+        `<div class="row"><button class="main small ${armed==='clearnotes'?'danger':''}" id="clearnotes" style="justify-content:center">${armed==='clearnotes'?'Press again to delete '+doneNotes.length+' done':'🗑 Clear all done'}</button></div>`:'') : '');
     app.innerHTML = header('📝 Notes', '#/') +
       `<div class="tabs" role="tablist">${NOTE_TABS.map(t=>{
         const c=all.filter(n=>noteCat(n)===t.id).length;
@@ -910,6 +911,9 @@
     app.querySelectorAll('[data-ntab]').forEach(b=>b.onclick=()=>{ go(`#/notes/${b.dataset.ntab}`, true); focusSel(`[data-ntab="${b.dataset.ntab}"]`); });
     app.querySelectorAll('[data-note]').forEach(b=>b.onclick=()=>go(`#/note/${b.dataset.note}`));
     const sd=document.getElementById('showdone'); if(sd) sd.onclick=()=>{ showDoneNotes=!showDoneNotes; render(); focusSel('#showdone'); };
+    const cn=document.getElementById('clearnotes'); if(cn) cn.onclick=()=>{
+      if(armed==='clearnotes'){ doneNotes.forEach(remove); armed=null; showDoneNotes=false; save(); render(); toast('Cleared done notes'); }
+      else { armed='clearnotes'; render(); focusSel('#clearnotes'); } };
     wireAdd(t=>{ data.notes.push({id:uid(),text:t,cat:tab.id,created:now(),u:now()}); save(); render(); focusSel('#newi'); });
     if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
   }
