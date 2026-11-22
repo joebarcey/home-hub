@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Inventory">
-<meta name="theme-color" content="#f3f1ec">
+<meta name="theme-color" content="#000000">
 <title>Inventory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Merienda:wght@700;800&display=swap" rel="stylesheet">
 <style>
   :root{ --bg:#f3f1ec; --card:#fff; --ink:#1f1d1a; --muted:#6f6a62; --line:#e2ddd3; --accent:#1f6f5c; --accent-soft:#e1efe9;
     --gold:#b07a12; --hero:#1f6f5c; --warn:#b8452f; --font:-apple-system,"SF Pro Text","Segoe UI",Roboto,system-ui,sans-serif; color-scheme:light; }
@@ -76,6 +78,13 @@
   .gimg .pemoji{margin:0;font-size:2.8rem}
   .gname{padding:8px 10px 10px;font-weight:700;font-size:.92rem;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   @media (min-width:760px){ #app{max-width:1000px} }
+  /* Match Home Hub: black background, Merienda script headings */
+  :root{ --bg:#000; --card:#121212; --ink:#f2f2f2; --muted:#9a9a9a; --line:#2a2a2a; --accent:#7dff9a; --accent-soft:#14261a;
+    --gold:#ffe66b; --hero:#1d6b45; --warn:#ffb35c; color-scheme:dark; }
+  h1,.gname,.nm,.pname,.section,.gchip,.gbtn,.btn,.mini .mtop b,.hero .big{font-family:"Merienda",var(--font)}
+  h1{font-weight:800} .gname,.nm{font-weight:700}
+  .gimg.none,.pimg.none{background:linear-gradient(135deg,#1b2a21,#151515)}
+  input,select,textarea{color-scheme:dark}
   .seg{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--bg);border-radius:12px;padding:4px}
   .seg button{border:0;background:none;border-radius:9px;padding:9px 2px;font-weight:700;font-size:.82rem;color:var(--muted);cursor:pointer}
   .seg button[aria-checked="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
