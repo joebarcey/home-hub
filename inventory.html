@@ -85,6 +85,13 @@
   h1{font-weight:800} .gname,.nm{font-weight:700}
   .gimg.none,.pimg.none{background:linear-gradient(135deg,#1b2a21,#151515)}
   input,select,textarea{color-scheme:dark}
+  #bg{display:none;position:fixed;inset:0;z-index:-1;background:#000 center/cover no-repeat}
+  #bg::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.45)}
+  body.has-bg{background:transparent} body.has-bg #bg{display:block}
+  body.has-bg .gtile,body.has-bg .card,body.has-bg .item,body.has-bg .pcard,body.has-bg .gchip:not([aria-checked="true"]),body.has-bg .gtools input,body.has-bg .gbtn,body.has-bg .back,body.has-bg .seg{background-color:rgba(18,18,18,.72);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+  body.has-bg h1,body.has-bg .gsum,body.has-bg .sync,body.has-bg .section,body.has-bg .sortbar{text-shadow:0 1px 3px #000,0 0 8px rgba(0,0,0,.8)}
+  body.has-bg .gsum,body.has-bg .sync{color:#ddd}
+  .bgmenu{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:-4px 0 12px}
   .seg{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--bg);border-radius:12px;padding:4px}
   .seg button{border:0;background:none;border-radius:9px;padding:9px 2px;font-weight:700;font-size:.82rem;color:var(--muted);cursor:pointer}
   .seg button[aria-checked="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
@@ -377,7 +384,7 @@
     const list = all.filter(i => (gcat === 'all' || i.cat === gcat) && (!qq || (i.name + ' ' + (i.note||'') + ' ' + cat(i.cat).name).toLowerCase().includes(qq)))
       .sort((a,b) => a.name.localeCompare(b.name));
     const worth = list.reduce((s,i) => s + calc(i).value, 0);
-    app.innerHTML = `<header>${FROM_HUB ? `<button class="back" id="hub" aria-label="Back to Home Hub">‹</button>` : ''}<h1>Inventory</h1><div class="sync" id="sync">${syncText()}</div></header>
+    app.innerHTML = `<header>${FROM_HUB ? `<button class="back" id="hub" aria-label="Back to Home Hub">‹</button>` : ''}<h1>Inventory</h1><div class="sync" id="sync">${syncText()}</div>${bgButton()}</header>
       <div class="gtools"><input id="gq" type="search" placeholder="🔍 Search your stuff" value="${esc(q)}" autocomplete="off" aria-label="Search">
         <button class="gbtn" id="num">📊 Numbers</button></div>
       <div class="gchips" role="tablist">
@@ -398,8 +405,55 @@
     document.getElementById('gcats').onclick = () => { from = 'grid'; go('cats'); };
     document.getElementById('add').onclick = () => { from = 'grid'; go('edit', null); };
     const hb = document.getElementById('hub'); if (hb) hb.onclick = () => { location.href = 'index.html' + (SYNC_URL ? '?sync=' + SYNC_URL : ''); };
+    wireBg();
     loadPhotos();
   }
+  // ---------- background picture: one for the whole app, kept on this device and in Drive (as invbg) ----------
+  const IBG = 'inv-bg', IBG_UP = 'inv-bg-up';
+  let bgOpen = false;
+  const bgEl = document.createElement('div'); bgEl.id = 'bg'; document.body.prepend(bgEl);
+  const bgFile = document.createElement('input'); bgFile.type = 'file'; bgFile.accept = 'image/*'; bgFile.hidden = true; document.body.appendChild(bgFile);
+  const getIBg = () => { try { return localStorage.getItem(IBG) || ''; } catch(e){ return ''; } };
+  const setIUp = v => { try { if (v) localStorage.setItem(IBG_UP, '1'); else localStorage.removeItem(IBG_UP); } catch(e){} };
+  function applyIBg(){ const u = getIBg(); document.body.classList.toggle('has-bg', !!u); bgEl.style.backgroundImage = u ? 'url("' + u + '")' : ''; }
+  function sendIBg(u){
+    if (!SYNC_URL) return;
+    fetch(SYNC_URL + '?action=photo', {method:'POST', body: JSON.stringify({id:'invbg', data: u ? u.split(',')[1] : ''})})
+      .then(r => r.json()).then(j => { if (j && j.ok) setIUp(!!u); }).catch(() => {});
+  }
+  function syncIBg(){
+    if (!SYNC_URL) return;
+    const L = getIBg(), up = (() => { try { return localStorage.getItem(IBG_UP) === '1'; } catch(e){ return false; } })();
+    if (L && !up) return sendIBg(L);
+    fetch(SYNC_URL + '?action=photo&id=invbg&t=' + now(), {cache:'no-store'}).then(r => r.json()).then(j => {
+      if (j && j.ok && j.data) { const d = 'data:image/jpeg;base64,' + j.data; if (d !== L) { try { localStorage.setItem(IBG, d); } catch(e){ return; } } setIUp(true); applyIBg(); }
+      else if (j && j.ok === false && !j.error && L) { try { localStorage.removeItem(IBG); } catch(e){} setIUp(false); applyIBg(); }
+    }).catch(() => {});
+  }
+  bgFile.onchange = () => {
+    const fl = bgFile.files && bgFile.files[0]; bgFile.value = ''; if (!fl) return;
+    const rd = new FileReader();
+    rd.onload = () => { const img = new Image(); img.onload = () => {
+      const sc = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      let u = c.toDataURL('image/jpeg', 0.72);
+      try { localStorage.setItem(IBG, u); } catch(e){ try { u = c.toDataURL('image/jpeg', 0.5); localStorage.setItem(IBG, u); } catch(e2){ toast('That picture is too big. Try another one.'); return; } }
+      setIUp(false); sendIBg(u); bgOpen = false; applyIBg(); render(); toast('Background set');
+    }; img.onerror = () => toast("Couldn't open that picture."); img.src = rd.result; };
+    rd.readAsDataURL(fl);
+  };
+  function bgButton(){
+    const has = !!getIBg();
+    return `<button class="back" id="bgbtn" aria-label="Background picture" style="font-size:1.05rem">🖼</button>` +
+      (bgOpen && has ? `</header><div class="bgmenu"><button class="btn ghost" id="bgchange">Change picture</button><button class="btn ghost" id="bgremove">Remove picture</button></div><header style="display:none">` : '');
+  }
+  function wireBg(){
+    const b = document.getElementById('bgbtn'); if (!b) return;
+    b.onclick = () => { if (getIBg()) { bgOpen = !bgOpen; render(); } else bgFile.click(); };
+    const ch = document.getElementById('bgchange'); if (ch) ch.onclick = () => { bgOpen = false; bgFile.click(); };
+    const rm = document.getElementById('bgremove'); if (rm) rm.onclick = () => { try { localStorage.removeItem(IBG); } catch(e){} setIUp(false); sendIBg(''); bgOpen = false; applyIBg(); render(); toast('Picture removed'); };
+  }
+  applyIBg(); setTimeout(syncIBg, 1200);
   function renderItem(){
     const it = live(data.items).find(x => x.id === openId); if (!it) return go(from);
     const c = calc(it), k = cat(it.cat), ms = live(it.maint).sort((a,b) => ((kindOf(b)!=='once') - (kindOf(a)!=='once')) || (parseDate(b.date)||0) - (parseDate(a.date)||0));
