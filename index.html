@@ -1244,19 +1244,47 @@
     if(!app.contains(document.activeElement)) focusFirst();
   }
 
-  // ---------- background pictures (phone only, saved on this phone) ----------
+  // ---------- background pictures (phone and computer, not the glasses; synced through the Google script) ----------
   const IS_PHONE = (()=>{ try { return innerHeight > innerWidth*1.2 && matchMedia('(pointer: coarse)').matches; } catch(e){ return false; } })();
+  const IS_DESK = (()=>{ try { return matchMedia('(pointer: fine)').matches && innerWidth >= 700; } catch(e){ return false; } })();
+  const BG_ON = IS_PHONE || IS_DESK;
   const BG_KEY = 'mrbd-home-hub-bg-';
   let bgMenu = false;
   function pageKey(){ const a = route().a; return a==='' ? 'home' : a==='p' ? 'projects' : a==='note' ? 'notes' : a==='job' ? 'honeydo' : a==='overview' ? (route().b==='projects'?'projects':'honeydo') : a==='contact' ? 'contacts' : a; }
   function getBg(k){ try { return localStorage.getItem(BG_KEY+k) || ''; } catch(e){ return ''; } }
+  // Each page's picture is also kept in Drive (as hhbg-<page>), so the phone and computer show the same ones
+  const BG_PAGES = ['home','projects','honeydo','notes','shopping','contacts'];
+  const bgUp = k => { try { return localStorage.getItem(BG_KEY + k + '-up') === '1'; } catch(e){ return false; } };
+  function setBgUp(k, v){ try { if (v) localStorage.setItem(BG_KEY + k + '-up', '1'); else localStorage.removeItem(BG_KEY + k + '-up'); } catch(e){} }
+  function bgSend(k, url){
+    if (!SYNC_URL) return;
+    fetch(SYNC_URL + '?action=photo', {method:'POST', body: JSON.stringify({id: 'hhbg-' + k, data: url ? url.split(',')[1] : ''})})
+      .then(r => r.json()).then(j => { if (j && j.ok) setBgUp(k, !!url); }).catch(() => {});
+  }
+  function bgSyncAll(){
+    if (!BG_ON || !SYNC_URL) return;
+    BG_PAGES.forEach(k => {
+      const L = getBg(k);
+      if (L && !bgUp(k)) return bgSend(k, L);   // picked on this device and not in Drive yet: send it up
+      fetch(SYNC_URL + '?action=photo&id=hhbg-' + k + '&t=' + Date.now(), {cache:'no-store'}).then(r => r.json()).then(j => {
+        if (j && j.ok && j.data) {
+          const d = 'data:image/jpeg;base64,' + j.data;
+          if (d !== L) { try { localStorage.setItem(BG_KEY + k, d); } catch(e){ return; } if (pageKey() === k) applyBg(); }
+          setBgUp(k, true);
+        } else if (j && j.ok === false && !j.error && L) {   // removed on the other device
+          try { localStorage.removeItem(BG_KEY + k); } catch(e){} setBgUp(k, false); if (pageKey() === k) applyBg();
+        }
+      }).catch(() => {});
+    });
+  }
+  setTimeout(bgSyncAll, 1500);
   function applyBg(){
-    const url = IS_PHONE ? getBg(pageKey()) : '';
+    const url = BG_ON ? getBg(pageKey()) : '';
     document.body.classList.toggle('has-bg', !!url);
     document.getElementById('bg').style.backgroundImage = url ? `url("${url}")` : '';
   }
   function addBgButton(){
-    if (!IS_PHONE) return;
+    if (!BG_ON) return;
     const h = app.querySelector('header'); if (!h) return;
     const has = !!getBg(pageKey());
     h.insertAdjacentHTML('beforeend', `<button class="bgbtn" id="bgbtn" aria-label="Background picture for this page">🖼</button>`);
@@ -1264,7 +1292,7 @@
     if (bgMenu && has){
       h.insertAdjacentHTML('afterend', `<div class="bgmenu"><button id="bgchange">Change picture</button><button id="bgremove">Remove picture</button></div>`);
       document.getElementById('bgchange').onclick = () => { bgMenu=false; document.getElementById('bgfile').click(); };
-      document.getElementById('bgremove').onclick = () => { try { localStorage.removeItem(BG_KEY+pageKey()); } catch(e){} bgMenu=false; render(); toast('Picture removed'); };
+      document.getElementById('bgremove').onclick = () => { const k = pageKey(); try { localStorage.removeItem(BG_KEY+k); } catch(e){} bgSend(k, ''); bgMenu=false; render(); toast('Picture removed'); };
     }
   }
   // Shrink the photo so it fits in the phone's storage, then save it for this page.
@@ -1285,6 +1313,7 @@
           try { url = c.toDataURL('image/jpeg', 0.5); localStorage.setItem(key, url); }
           catch(err2){ toast('That picture is too big to save. Try another, or remove a picture from another page.'); return; }
         }
+        setBgUp(key.slice(BG_KEY.length), false); bgSend(key.slice(BG_KEY.length), url);
         bgMenu = false; render();
       };
       img.onerror = () => toast("Couldn't open that picture. Try a different one.");
