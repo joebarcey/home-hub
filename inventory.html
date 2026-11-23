@@ -295,6 +295,7 @@
 
   function render(){
     if (view === 'grid') return renderGrid();
+    if (view === 'genres') return renderGenres();
     if (view === 'item') return renderItem();
     if (view === 'edit') return renderEdit();
     if (view === 'cats') return renderCats();
@@ -425,10 +426,12 @@
       const gs = [...new Set(list.map(i => i.genre || '').filter(Boolean))].sort((a,b) => a.localeCompare(b));
       const none = list.filter(i => !i.genre).length;
       if (ggenre !== 'all' && ggenre !== '_' && !gs.includes(ggenre)) ggenre = 'all';
+      if (!gs.length && list.length) genreTabs = `<button class="gbtn" id="sortgenres" style="width:100%;padding:12px;margin-bottom:10px;font-size:.95rem">🏷 Sort your books into genres</button>`;
       if (gs.length) genreTabs = `<div class="gchips" role="tablist" style="margin-top:2px">
         <button class="gchip" role="tab" data-genre="all" aria-checked="${ggenre==='all'}">All <small>${list.length}</small></button>
         ${gs.map(g => `<button class="gchip" role="tab" data-genre="${esc(g)}" aria-checked="${ggenre===g}">${esc(g)} <small>${list.filter(i => i.genre === g).length}</small></button>`).join('')}
-        ${none ? `<button class="gchip" role="tab" data-genre="_" aria-checked="${ggenre==='_'}">No genre <small>${none}</small></button>` : ''}</div>`;
+        ${none ? `<button class="gchip" role="tab" data-genre="_" aria-checked="${ggenre==='_'}">No genre <small>${none}</small></button>` : ''}
+        <button class="gchip" id="sortgenres" aria-label="Set genres">🏷 Edit genres</button></div>`;
       if (ggenre === '_') list = list.filter(i => !i.genre); else if (ggenre !== 'all') list = list.filter(i => i.genre === ggenre);
     }
     const worth = list.reduce((s,i) => s + calc(i).value, 0);
@@ -455,6 +458,7 @@
       <button class="btn fab center" id="add" style="background:var(--hero)">＋ Add item</button><div style="height:90px"></div>`;
     app.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { gcat = b.dataset.g; ggenre = 'all'; renderGrid(); window.scrollTo(0,0); });
     app.querySelectorAll('[data-genre]').forEach(b => b.onclick = () => { ggenre = b.dataset.genre; renderGrid(); });
+    const sg = document.getElementById('sortgenres'); if (sg) sg.onclick = () => { genreCat = f.id; go('genres'); };
     app.querySelectorAll('[data-gopen]').forEach(b => b.onclick = () => { from = 'grid'; go('item', b.dataset.gopen); });
     document.getElementById('num').onclick = () => { filter = f ? f.id : 'home'; go('list'); };
     document.getElementById('gcats').onclick = () => { from = 'grid'; go('cats'); };
@@ -648,7 +652,7 @@
   }
   // Genres for the Library. Any genre you type becomes a tab too.
   const GENRES = ['Fiction','Mystery & Thriller','Sci-Fi & Fantasy','Romance','Horror','Biography & Memoir','History','Religion & Faith',
-    'Self-Help','Business & Money','Kids & Young Adult','Cooking','Home & Garden','Sports & Outdoors','Reference','Poetry'];
+    'Self-Help','Business & Money','Kids & Young Adult','Cooking','Home & Garden','Sports & Outdoors','Reference','Poetry','Philosophy','Politics'];
   const GENRE_WORDS = [['Kids & Young Adult',/juvenile|children|young adult|picture book/],['Cooking',/cook|recipe/],['Home & Garden',/garden|plants|home improvement|house/],
     ['Religion & Faith',/relig|christian|bible|spiritual|theolog|church|faith|god/],['Biography & Memoir',/biograph|memoir|autobiograph/],
     ['Mystery & Thriller',/myster|detective|thriller|suspense|crime/],['Sci-Fi & Fantasy',/science fiction|fantasy|dragon|magic|space opera/],
@@ -660,7 +664,28 @@
     for (const [g, re] of GENRE_WORDS) if (re.test(t)) return g;
     return '';
   }
-  let ggenre = 'all';
+  let ggenre = 'all', genreCat = 'book';
+  // One page to give every book a genre: pick from the list or type your own
+  function renderGenres(){
+    const books = live(data.items).filter(i => i.cat === genreCat).sort((a,b) => (!!a.genre - !!b.genre) || a.name.localeCompare(b.name));
+    const opts = [...new Set(GENRES.concat(live(data.items).map(i => i.genre).filter(Boolean)))].sort();
+    app.innerHTML = header('🏷 Book genres', true) +
+      `<div class="card" style="font-size:.9rem;color:var(--muted)">Pick a genre for each book, or type your own. Each genre becomes a tab in your Library. Books without one are at the top.</div>
+      <datalist id="genrelist">${opts.map(g => `<option value="${esc(g)}">`).join('')}</datalist>
+      <div class="card">${books.map(i => { const url = photoUrl(i);
+        return `<div class="mrow" style="align-items:center;gap:10px"><div class="gimg${url ? '' : ' none'}" data-photo="${i.id}" style="width:46px;height:46px;flex:none;border-radius:9px;${url ? 'background-image:url(' + url + ')' : ''}">${url ? '' : '<span style="font-size:1.2rem">📚</span>'}</div>
+          <div class="d" style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(i.name)}</b></div>
+          <input data-gset="${i.id}" list="genrelist" value="${esc(i.genre || '')}" placeholder="Genre…" autocomplete="off"
+            style="width:46%;min-width:0;border:1.5px solid ${i.genre ? 'var(--accent)' : 'var(--line)'};border-radius:10px;padding:9px;background:var(--bg);color:var(--ink);font-size:16px"></div>`; }).join('')
+        || '<div style="color:var(--muted)">No books yet.</div>'}</div>
+      <button class="btn wide" id="gdone" style="margin:6px 0 30px">Done</button>`;
+    const saveG = inp => { const it = data.items.find(x => x.id === inp.dataset.gset), v = inp.value.trim();
+      if ((it.genre || '') === v) return; if (v) it.genre = v; else delete it.genre; touch(it); save(); inp.style.borderColor = v ? 'var(--accent)' : 'var(--line)'; toast(v ? it.name + ': ' + v : 'Genre cleared'); };
+    app.querySelectorAll('[data-gset]').forEach(inp => { inp.onchange = () => saveG(inp); inp.onblur = () => saveG(inp); inp.onkeydown = e => { if (e.key === 'Enter') inp.blur(); }; });
+    const back = () => { document.querySelectorAll('[data-gset]').forEach(saveG); gcat = genreCat; go('grid'); };
+    document.getElementById('back').onclick = back; document.getElementById('gdone').onclick = back;
+    loadPhotos();
+  }
   const isBook = id => { const c = cat(id); return !!c && (c.id === 'book' || /book|librar/i.test(c.name || '')); };
   let scanNow = false;   // open the camera as soon as the Add form shows (from "Scan a book")
   function renderItem(){
