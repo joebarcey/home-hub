@@ -427,14 +427,16 @@
           <div class="gname">${esc(i.name)}</div></button>`; }).join('')}</div>`
         : `<div class="empty">Nothing in ${esc(f.name)} yet. Tap ＋ to add something.</div>`;
     }
+    const scanBtn = f && isBook(f.id) ? `<button class="gbtn" id="scanbook" style="width:100%;padding:12px;margin-bottom:10px;font-size:.95rem">📷 Scan a book’s barcode</button>` : '';
     app.innerHTML = `<header>${backBtn}<h1>${f ? f.ic + ' ' + esc(f.name) : 'Inventory'}</h1><div class="sync" id="sync">${syncText()}</div>${bgButton()}</header>
-      ${tools}${sum}${body}
+      ${tools}${scanBtn}${sum}${body}
       <button class="btn fab center" id="add" style="background:var(--hero)">＋ Add item</button><div style="height:90px"></div>`;
     app.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { gcat = b.dataset.g; renderGrid(); window.scrollTo(0,0); });
     app.querySelectorAll('[data-gopen]').forEach(b => b.onclick = () => { from = 'grid'; go('item', b.dataset.gopen); });
     document.getElementById('num').onclick = () => { filter = f ? f.id : 'home'; go('list'); };
     document.getElementById('gcats').onclick = () => { from = 'grid'; go('cats'); };
     document.getElementById('add').onclick = () => { from = 'grid'; filter = f ? f.id : 'home'; go('edit', null); };
+    const sb = document.getElementById('scanbook'); if (sb) sb.onclick = () => { from = 'grid'; filter = f.id; scanNow = true; go('edit', null); };
     const gb = document.getElementById('gback'); if (gb) gb.onclick = () => { gcat = 'all'; renderGrid(); window.scrollTo(0,0); };
     const hb = document.getElementById('hub'); if (hb) hb.onclick = () => { location.href = 'index.html' + (SYNC_URL ? '?sync=' + SYNC_URL : ''); };
     wireBg();
@@ -486,6 +488,143 @@
     const rm = document.getElementById('bgremove'); if (rm) rm.onclick = () => { try { localStorage.removeItem(IBG); } catch(e){} setIUp(false); sendIBg(''); bgOpen = false; applyIBg(); render(); toast('Picture removed'); };
   }
   applyIBg(); setTimeout(syncIBg, 1200);
+  // ---------- barcode reader: finds an EAN-13 (the barcode on books) in a photo. No internet needed. ----------
+  const EAN = (() => {
+    const L = ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
+    const runsOf = p => { const r = []; let n = 1; for (let i = 1; i <= p.length; i++) { if (p[i] === p[i-1]) n++; else { r.push(n); n = 1; } } return r; };
+    const R = L.map(p => p.replace(/./g, b => b === '0' ? '1' : '0'));
+    const G = R.map(p => p.split('').reverse().join(''));
+    const PL = L.map(runsOf), PG = G.map(runsOf), PR = R.map(runsOf);
+    const PARITY = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+    function best(w, sets){ // w: 4 widths. returns [digit, set index, error]
+      const u = (w[0]+w[1]+w[2]+w[3]) / 7; let bd = -1, bs = -1, be = 9;
+      sets.forEach((S, si) => S.forEach((p, d) => {
+        if (p.length !== 4) return;
+        let e = 0; for (let k = 0; k < 4; k++) e += Math.abs(w[k] / u - p[k]);
+        if (e < be) { be = e; bd = d; bs = si; }
+      }));
+      return [bd, bs, be];
+    }
+    const checkOk = s => { let t = 0; for (let i = 0; i < 12; i++) t += (+s[i]) * (i % 2 ? 3 : 1); return (10 - t % 10) % 10 === +s[12]; };
+    // runs: widths starting with a dark run
+    function fromRuns(runs){
+      for (let i = 0; i + 59 <= runs.length; i += 2) {
+        const m = (runs[i] + runs[i+1] + runs[i+2]) / 3;
+        if (m < 0.8) continue;
+        if (i > 0 && runs[i-1] < 4 * m) continue;          // quiet zone before the start
+        let ok = true; for (let k = 0; k < 3; k++) if (runs[i+k] < 0.4*m || runs[i+k] > 1.8*m) ok = false;
+        if (!ok) continue;
+        let j = i + 3, left = '', par = '', err = 0;
+        for (let d = 0; d < 6; d++, j += 4) { const [dg, si, e] = best(runs.slice(j, j+4), [PL, PG]); if (dg < 0 || e > 2.2) { ok = false; break; } left += dg; par += si ? 'G' : 'L'; err += e; }
+        if (!ok) continue;
+        const mid = runs.slice(j, j+5), mm = mid.reduce((a,b) => a+b, 0) / 5; j += 5;
+        if (mid.some(x => x < 0.35*mm || x > 2.2*mm)) continue;
+        let right = '';
+        for (let d = 0; d < 6; d++, j += 4) { const [dg, , e] = best(runs.slice(j, j+4), [PR]); if (dg < 0 || e > 2.2) { ok = false; break; } right += dg; err += e; }
+        if (!ok) continue;
+        const first = PARITY.indexOf(par); if (first < 0) continue;
+        const code = first + left + right;
+        if (checkOk(code)) return code;
+      }
+      return null;
+    }
+    function lineRuns(g, thr){ // g: gray values, thr: threshold per pixel; returns runs starting with dark
+      const runs = []; let cur = g[0] < thr[0], n = 0, started = false;
+      for (let x = 0; x < g.length; x++) {
+        const d = g[x] < thr[x];
+        if (d === cur) n++; else { if (started || cur) { runs.push(n); started = true; } cur = d; n = 1; }
+      }
+      return runs;
+    }
+    function scanCanvas(cv){
+      const ctx = cv.getContext('2d', {willReadFrequently: true}), W = cv.width, H = cv.height, votes = {};
+      const lines = 60;
+      for (let li = 0; li < lines; li++) {
+        const y = Math.round(H * (0.08 + 0.84 * li / (lines - 1)));
+        const px = ctx.getImageData(0, y, W, 1).data, g = new Float32Array(W);
+        for (let x = 0; x < W; x++) g[x] = px[4*x] * 0.3 + px[4*x+1] * 0.59 + px[4*x+2] * 0.11;
+        // two ways to split dark from light: halfway between darkest and lightest, and a moving average
+        let lo = 255, hi = 0; for (let x = 0; x < W; x++) { if (g[x] < lo) lo = g[x]; if (g[x] > hi) hi = g[x]; }
+        if (hi - lo < 40) continue;
+        const flat = new Float32Array(W).fill((lo + hi) / 2), avg = new Float32Array(W), win = Math.max(8, Math.round(W / 40));
+        let s = 0; for (let x = 0; x < W; x++) { s += g[x]; if (x >= win) s -= g[x - win]; avg[x] = s / Math.min(x + 1, win); }
+        const avg2 = new Float32Array(W); for (let x = 0; x < W; x++) avg2[x] = avg[Math.min(W - 1, x + (win >> 1))];
+        for (const thr of [flat, avg2]) {
+          const runs = lineRuns(g, thr);
+          let code = fromRuns(runs) || fromRuns(runs.slice().reverse().slice(runs.length % 2 ? 0 : 1));
+          if (code) { votes[code] = (votes[code] || 0) + 1; if (votes[code] >= 3) return code; }
+        }
+      }
+      let top = null; for (const k in votes) if (!top || votes[k] > votes[top]) top = k;
+      return top;
+    }
+    function draw(img, angle, maxW){
+      const sc = Math.min(1, maxW / Math.max(img.width, img.height));
+      const w = img.width * sc, h = img.height * sc, a = angle * Math.PI / 180;
+      const cw = Math.round(Math.abs(w * Math.cos(a)) + Math.abs(h * Math.sin(a))), ch = Math.round(Math.abs(w * Math.sin(a)) + Math.abs(h * Math.cos(a)));
+      const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+      const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, cw, ch);
+      c.translate(cw / 2, ch / 2); c.rotate(a); c.drawImage(img, -w / 2, -h / 2, w, h);
+      return cv;
+    }
+    async function fromImage(img){
+      if ('BarcodeDetector' in window) {
+        try { const r = await new BarcodeDetector({formats:['ean_13']}).detect(img); if (r && r[0] && /^\d{13}$/.test(r[0].rawValue)) return r[0].rawValue; } catch(e){}
+      }
+      for (const maxW of [1400, 2400, 900]) for (const ang of [0, 90, -7, 7, 83, 97, -14, 14]) {
+        const code = scanCanvas(draw(img, ang, maxW)); if (code) return code;
+        await new Promise(r => setTimeout(r, 0));   // let the screen update between tries
+      }
+      return null;
+    }
+    function fromFile(file){
+      return new Promise((res) => {
+        const rd = new FileReader();
+        rd.onload = () => { const img = new Image(); img.onload = () => fromImage(img).then(res, () => res(null)); img.onerror = () => res(null); img.src = rd.result; };
+        rd.onerror = () => res(null); rd.readAsDataURL(file);
+      });
+    }
+    return { fromFile, fromImage, checkOk };
+  })();
+  // ISBN helpers: books use 978/979 barcodes. ISBN-10 is the older 10-digit form.
+  function isbnClean(s){
+    s = String(s || '').toUpperCase().replace(/[^0-9X]/g, '');
+    if (s.length === 10) { let t = 0; for (let i = 0; i < 9; i++) t += (10 - i) * +s[i]; const c = (11 - t % 11) % 11; if ((c === 10 ? 'X' : String(c)) !== s[9]) return '';
+      const b = '978' + s.slice(0, 9); let u = 0; for (let i = 0; i < 12; i++) u += (+b[i]) * (i % 2 ? 3 : 1); return b + ((10 - u % 10) % 10); }
+    if (s.length === 13 && /^\d+$/.test(s) && EAN.checkOk(s)) return s;
+    return '';
+  }
+  const isbnFmt = s => s && s.length === 13 ? s.slice(0,3) + '-' + s.slice(3) : (s || '');
+  // Look the book up (Open Library, then Google Books). Returns {title, authors, cover} or null.
+  async function bookLookup(isbn){
+    try {
+      const j = await fetch('https://openlibrary.org/api/books?bibkeys=ISBN:' + isbn + '&format=json&jscmd=data').then(r => r.json());
+      const b = j && j['ISBN:' + isbn];
+      if (b && b.title) return { title: b.title + (b.subtitle ? ': ' + b.subtitle : ''), authors: (b.authors || []).map(a => a.name).join(', '),
+        cover: 'https://covers.openlibrary.org/b/isbn/' + isbn + '-L.jpg?default=false' };
+    } catch(e){}
+    try {
+      const j = await fetch('https://www.googleapis.com/books/v1/volumes?q=isbn:' + isbn).then(r => r.json());
+      const v = j && j.items && j.items[0] && j.items[0].volumeInfo;
+      if (v && v.title) return { title: v.title + (v.subtitle ? ': ' + v.subtitle : ''), authors: (v.authors || []).join(', '), cover: '' };
+    } catch(e){}
+    return null;
+  }
+  // Turn a cover picture from the web into a saved photo (only works when the site allows it)
+  function coverToPhoto(url){
+    return new Promise(res => {
+      if (!url) return res('');
+      const img = new Image(); img.crossOrigin = 'anonymous';
+      img.onload = () => { try { if (img.width < 20) return res('');
+        const W = 720, H = 540, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const c = cv.getContext('2d');
+        c.fillStyle = '#1b1b1b'; c.fillRect(0, 0, W, H); const sc = Math.min(W / img.width, H / img.height), w = img.width * sc, h = img.height * sc;
+        c.drawImage(img, (W - w) / 2, (H - h) / 2, w, h); res(cv.toDataURL('image/jpeg', 0.75)); } catch(e){ res(''); } };
+      img.onerror = () => res(''); img.src = url;
+      setTimeout(() => res(''), 8000);
+    });
+  }
+  const isBook = id => { const c = cat(id); return !!c && (c.id === 'book' || /book/i.test(c.name || '')); };
+  let scanNow = false;   // open the camera as soon as the Add form shows (from "Scan a book")
   function renderItem(){
     const it = live(data.items).find(x => x.id === openId); if (!it) return go(from);
     const c = calc(it), k = cat(it.cat), ms = live(it.maint).sort((a,b) => ((kindOf(b)!=='once') - (kindOf(a)!=='once')) || (parseDate(b.date)||0) - (parseDate(a.date)||0));
@@ -516,7 +655,8 @@
           ${purl ? '' : `<span class="pemoji">${k.ic}</span>`}<span class="dethint">Tap for all details ›</span></button>
         <div class="card" style="text-align:center">
           <div class="big2" style="margin:2px 0 2px">${perDayFmt(c.perDay)}</div><div style="color:var(--muted)">per day</div>
-          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)"><small style="color:var(--muted)">Paid</small> <b style="font-size:1.15rem">${money(num(it.price))}</b></div></div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)"><small style="color:var(--muted)">Paid</small> <b style="font-size:1.15rem">${money(num(it.price))}</b></div>
+          ${it.isbn ? `<div style="margin-top:6px;font-size:.88rem;color:var(--muted)">ISBN ${isbnFmt(it.isbn)}</div>` : ''}</div>
         ${noteHtml}
         <div class="card">${formOrAdd}</div>`;
     } else {
@@ -527,6 +667,7 @@
         <div class="big2" style="margin:8px 0 4px">${perDayFmt(c.perDay)}</div><div style="color:var(--muted)">per day</div></div>
       <div class="card stat">
         <div><small>Bought for</small><b>${money(num(it.price))}</b></div>
+        ${it.isbn ? `<div><small>ISBN</small><b style="font-size:.95rem">${isbnFmt(it.isbn)}</b></div>` : ''}
         <div><small>Upkeep so far</small><b>${money(c.maint)}</b></div>
         ${c.monthly ? `<div><small>Monthly charges</small><b>${money(c.monthly)}/mo</b></div>` : ''}
         ${c.yearly ? `<div><small>Yearly charges</small><b>${money(c.yearly)}/yr</b></div>` : ''}
@@ -649,6 +790,10 @@
       `<form class="f card" id="f">
         <label>Name<input id="n" value="${esc(v.name)}" placeholder="2019 F-150, Grandpa's watch, DeWalt drill…" autocomplete="off" required></label>
         <label>Category<select id="c">${cats.map(c => `<option value="${c.id}" ${v.cat===c.id?'selected':''}>${c.ic} ${esc(c.name)}</option>`).join('')}</select></label>
+        <div id="isbnbox" style="display:${isBook(v.cat) ? 'grid' : 'none'};gap:4px"><div style="font-size:.85rem;font-weight:600;color:var(--muted)">ISBN</div>
+          <div style="display:flex;gap:8px"><input id="isbn" inputmode="numeric" value="${esc(isbnFmt(v.isbn || ''))}" placeholder="Scan the barcode or type it" autocomplete="off" style="flex:1;min-width:0">
+            <label class="btn ghost" style="cursor:pointer;white-space:nowrap;display:flex;align-items:center">📷 Scan<input type="file" id="isbnin" accept="image/*" hidden></label></div>
+          <div id="isbnmsg" style="font-size:.84rem;color:var(--muted)"></div></div>
         <div class="two"><label>Price paid<input id="p" inputmode="decimal" value="${v.price===''?'':num(v.price)}" placeholder="0.00" required></label>
           <label>Date bought<input id="b" type="date" value="${esc(v.bought)}" required></label></div>
         <div><div style="font-size:.85rem;font-weight:600;color:var(--muted);margin-bottom:4px">Photo (optional)</div>
@@ -667,12 +812,46 @@
       catch(er){ toast("Couldn't open that picture. Try another one."); }
     };
     document.getElementById('phdel').onclick = () => { newPhoto = ''; pv.classList.add('none'); pv.style.backgroundImage = ''; pv.innerHTML = '<span class="pemoji">📷</span>'; };
+    // ---- ISBN: scan the barcode from a picture, then look the book up ----
+    const ib = document.getElementById('isbnbox'), ii = document.getElementById('isbn'), im = document.getElementById('isbnmsg');
+    const say = (t, good) => { im.innerHTML = t; im.style.color = good ? 'var(--accent)' : 'var(--muted)'; };
+    document.getElementById('c').addEventListener('change', e => { ib.style.display = isBook(e.target.value) ? 'grid' : 'none'; });
+    let lookedUp = '';
+    async function fillFrom(isbn){
+      if (!isbn || lookedUp === isbn) return; lookedUp = isbn;
+      say('🔎 Looking up the book…');
+      const b = await bookLookup(isbn);
+      if (!b) { say('ISBN ' + isbnFmt(isbn) + ' saved. Couldn’t find the title online, so type it in above.'); return; }
+      const n = document.getElementById('n'), no = document.getElementById('no');
+      if (!n.value.trim()) n.value = b.title;
+      if (b.authors && !no.value.trim()) no.value = 'by ' + b.authors;
+      say('📚 <b>' + esc(b.title) + '</b>' + (b.authors ? ' by ' + esc(b.authors) : '') +
+        (n.value.trim() !== b.title ? ' · <a href="#" id="usetitle" style="color:var(--accent)">Use this title</a>' : ''), true);
+      const ut = document.getElementById('usetitle'); if (ut) ut.onclick = e => { e.preventDefault(); n.value = b.title; ut.remove(); };
+      if (newPhoto === null && !photoUrl(it) && b.cover) {
+        const d = await coverToPhoto(b.cover);
+        if (d && newPhoto === null) { newPhoto = d; pv.classList.remove('none'); pv.style.backgroundImage = 'url(' + d + ')'; pv.innerHTML = ''; }
+      }
+    }
+    document.getElementById('isbnin').onchange = async e => {
+      const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (!fl) return;
+      say('📷 Reading the barcode…');
+      const code = await EAN.fromFile(fl);
+      if (!code) { say('Couldn’t find a barcode in that picture. Get close, hold it straight, with good light, or type the number.'); return; }
+      ii.value = isbnFmt(code);
+      if (!/^97[89]/.test(code)) { say('Read ' + code + ', but that’s a store barcode, not an ISBN. Books have a second barcode starting with 978 or 979.'); return; }
+      lookedUp = ''; fillFrom(code);
+    };
+    ii.addEventListener('change', () => { const c = isbnClean(ii.value); if (c) { ii.value = isbnFmt(c); fillFrom(c); } else if (ii.value.trim()) say('That doesn’t look like a full ISBN. Check the digits (10 or 13).'); });
+    if (scanNow) { scanNow = false; document.getElementById('isbnin').click(); }
     document.getElementById('f').onsubmit = e => {
       e.preventDefault();
       const x = it || {id: uid(), maint: [], c: now()};
       x.name = document.getElementById('n').value.trim(); x.cat = document.getElementById('c').value;
       x.price = num(document.getElementById('p').value); x.bought = document.getElementById('b').value;
       x.note = document.getElementById('no').value.trim();
+      { const raw = document.getElementById('isbn').value.trim(), c = isbnClean(raw);
+        if (c) x.isbn = c; else if (!raw) delete x.isbn; else if (/^\d{12,13}$/.test(raw.replace(/\D/g, ''))) x.isbn = raw.replace(/\D/g, ''); }
       if (newPhoto !== null) savePhoto(x, newPhoto);
       touch(x); if (!it) data.items.push(x);
       save(); toast(it ? 'Saved' : 'Added'); go('item', x.id);
