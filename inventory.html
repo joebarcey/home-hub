@@ -121,6 +121,8 @@
   .grid.items .gimg .pemoji{font-size:1.6rem}
   .grid.items .gname{padding:5px 6px 0;margin-bottom:6px;font-size:.72rem;line-height:1.2;max-height:2.4em;box-sizing:content-box}
   .ctile .gimg{position:relative}
+  .tapdet{position:relative;display:flex;align-items:center;justify-content:center}
+  .dethint{position:absolute;right:10px;bottom:10px;background:rgba(0,0,0,.62);color:#fff;font-size:.8rem;font-weight:700;padding:5px 11px;border-radius:99px}
   /* category tiles: half size too */
   .grid.cats .ctile .pemoji{font-size:1.4rem;margin-bottom:40px}
   .grid.cats .cover{padding:16px 4px 5px}
@@ -277,7 +279,8 @@
   let view = 'grid', from = 'grid', q = '', gcat = 'all', openId = null, filter = 'home', sortBy = 'perDay', armed = null, editMaint = false, mkind = 'once', mode = 'cost';
   try { const v = localStorage.getItem('costperday-v1-mode'); if (v === 'value' || v === 'worth') mode = v; } catch(e){}
   try { sortBy = localStorage.getItem(LS + '-sort') || 'perDay'; } catch(e){}
-  function go(v, id){ view = v; openId = id || null; armed = null; editMaint = false; render(); window.scrollTo(0,0); }
+  let detail = false;
+  function go(v, id){ view = v; openId = id || null; armed = null; editMaint = false; detail = false; render(); window.scrollTo(0,0); }
   const header = (title, back) => `<header>${back ? `<button class="back" id="back" aria-label="Back">‹</button>` : ''}<h1>${title}</h1><div class="sync" id="sync">${syncText()}</div></header>`;
 
   function render(){
@@ -488,9 +491,39 @@
     const c = calc(it), k = cat(it.cat), ms = live(it.maint).sort((a,b) => ((kindOf(b)!=='once') - (kindOf(a)!=='once')) || (parseDate(b.date)||0) - (parseDate(a.date)||0));
     const pct = c.total > 0 ? Math.min(100, Math.round(num(it.price) / (num(it.price) + c.maint) * 100)) : 100;
     const purl = photoUrl(it);
-    app.innerHTML = header(esc(it.name), true) +
-      (purl ? `<div class="pimg" data-photo="${it.id}" style="height:210px;border-radius:18px;margin-bottom:12px;background-image:url(${purl})"></div>` : '') +
-      `<div class="card" style="text-align:center"><div style="color:var(--muted);font-size:.9rem">${k.ic} ${esc(k.name)} · owned for ${ownedText(c.days)}</div>
+    const formOrAdd = `        ${editMaint ? (() => { const em = editMaint===true ? null : live(it.maint).find(x => x.id===editMaint); mkind = em ? kindOf(em) : (mkind || 'once');
+            const K = [['once','One-time'],['m','Monthly'],['y','Yearly'],['loan','Loan interest']];
+            return `<form class="f" id="mform" style="margin-top:12px">${em ? '<div class="section" style="margin:0">Edit</div>' : ''}
+            <div class="seg" role="radiogroup" aria-label="Type">${K.map(([v,l]) => `<button type="button" role="radio" aria-checked="${mkind===v}" data-mk="${v}">${l}</button>`).join('')}</div>
+            <label><span data-lbl="desc"></span><input id="md" value="${em ? esc(em.desc) : ''}" autocomplete="off" required></label>
+            <div class="two" data-show="once m y"><label><span data-lbl="cost"></span><input id="mc" inputmode="decimal" value="${em && !em.loan ? num(em.cost) : ''}" placeholder="0.00"></label>
+              <label><span data-lbl="date"></span><input id="mdt" type="date" value="${em && em.date ? esc(em.date) : toInput(now())}"></label></div>
+            <div data-show="loan" style="display:grid;gap:10px">
+              <div class="two"><label>Amount borrowed<input id="la" inputmode="decimal" value="${em && em.loan ? num(em.loan.amt) : (num(it.price) || '')}" placeholder="0.00"></label>
+                <label>Interest rate (APR %)<input id="lr" inputmode="decimal" value="${em && em.loan ? num(em.loan.apr) : ''}" placeholder="6.9"></label></div>
+              <div class="two"><label>Length (months)<input id="lt" inputmode="numeric" value="${em && em.loan ? num(em.loan.term) : ''}" placeholder="60"></label>
+                <label>First payment<input id="ld" type="date" value="${em && em.loan && em.date ? esc(em.date) : (it.bought || toInput(now()))}"></label></div>
+              <div id="lprev" style="font-size:.85rem;color:var(--muted)"></div></div>
+            <label data-show="m y loan"><span data-lbl="end"></span><input id="mend" type="date" value="${em && em.end ? esc(em.end) : ''}"></label>
+            <div class="two"><button type="button" class="btn ghost" id="mcancel">Cancel</button><button class="btn">${em ? 'Save' : 'Add'}</button></div></form>`; })()
+          : `<button class="btn ghost wide" id="madd" style="margin-top:10px">＋ Add maintenance</button>`}`;
+    const noteHtml = it.note ? `<div class="section">Notes</div><div class="card" style="white-space:pre-wrap">${esc(it.note)}</div>`
+      : `<div class="section">Notes</div><div class="card" style="color:var(--muted)">No notes yet. Tap the picture, then ✏️ Edit to add some.</div>`;
+    if (!detail) {
+      // Simple page: picture (tap it for everything else), what you paid, cost per day, notes and maintenance
+      app.innerHTML = header(esc(it.name), true) +
+        `<button class="pimg tapdet${purl ? '' : ' none'}" id="todetail" data-photo="${it.id}" style="height:230px;width:100%;border:0;padding:0;border-radius:18px;margin-bottom:12px;cursor:pointer;${purl ? 'background-image:url(' + purl + ')' : ''}" aria-label="Show all details">
+          ${purl ? '' : `<span class="pemoji">${k.ic}</span>`}<span class="dethint">Tap for all details ›</span></button>
+        <div class="card" style="text-align:center">
+          <div class="big2" style="margin:2px 0 2px">${perDayFmt(c.perDay)}</div><div style="color:var(--muted)">per day</div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)"><small style="color:var(--muted)">Paid</small> <b style="font-size:1.15rem">${money(num(it.price))}</b></div></div>
+        ${noteHtml}
+        <div class="card">${formOrAdd}</div>`;
+    } else {
+      // Everything else, plus Edit and Delete
+      app.innerHTML = header(esc(it.name), true) +
+        (purl ? `<div class="pimg" data-photo="${it.id}" style="height:150px;border-radius:18px;margin-bottom:12px;background-image:url(${purl})"></div>` : '') +
+            `<div class="card" style="text-align:center"><div style="color:var(--muted);font-size:.9rem">${k.ic} ${esc(k.name)} · owned for ${ownedText(c.days)}</div>
         <div class="big2" style="margin:8px 0 4px">${perDayFmt(c.perDay)}</div><div style="color:var(--muted)">per day</div></div>
       <div class="card stat">
         <div><small>Bought for</small><b>${money(num(it.price))}</b></div>
@@ -516,7 +549,7 @@
         </div>
         <div style="margin-top:10px"><label style="display:grid;gap:4px;font-size:.85rem;font-weight:600;color:var(--muted)">✍️ What it’s really worth today (leave empty for the estimate)
           <div style="display:flex;gap:8px"><input id="cvin" inputmode="decimal" value="${c.mine ? num(it.curVal) : ''}" placeholder="${Math.round(c.est)}"
-            style="flex:1;border:1.5px solid ${c.mine ? 'var(--accent)' : 'var(--line)'};border-radius:12px;padding:11px 12px;background:var(--bg);color:var(--ink);font-size:16px;font-weight:700">
+            style="flex:1;min-width:0;border:1.5px solid ${c.mine ? 'var(--accent)' : 'var(--line)'};border-radius:12px;padding:11px 12px;background:var(--bg);color:var(--ink);font-size:16px;font-weight:700">
           <button class="btn" id="cvsave" type="button">Save</button></div></label></div>
         ${c.gain > 0 ? `<div style="text-align:center;margin-top:10px;font-weight:700;color:var(--accent)">Worth more than that! Selling for ${money(c.value, 0)} would put you ${money(c.gain, 0)} ahead.</div>` : ''}
         <div style="font-size:.8rem;color:var(--muted);margin-top:8px">Acceptable loss = ${money(c.depr, 0)} ${c.mine ? 'lost in value' : 'depreciation'} + ${money(c.maint * UPKEEP_LOSS, 0)} (50% of upkeep).</div>
@@ -536,35 +569,22 @@
               <b>${money(num(m.cost) * n)}</b>${del}</div>`; }
           return `<div class="mrow"><div class="d"><button class="medit" data-medit="${m.id}"><b>${esc(m.desc || 'Maintenance')}</b><small>${m.date ? d(m.date) : ''}</small></button></div>
             <b>${money(num(m.cost))}</b>${del}</div>`; }).join('') || '<div style="color:var(--muted)">No upkeep yet. Oil changes, repairs, insurance, loan interest…</div>'}
-        ${editMaint ? (() => { const em = editMaint===true ? null : live(it.maint).find(x => x.id===editMaint); mkind = em ? kindOf(em) : (mkind || 'once');
-            const K = [['once','One-time'],['m','Monthly'],['y','Yearly'],['loan','Loan interest']];
-            return `<form class="f" id="mform" style="margin-top:12px">${em ? '<div class="section" style="margin:0">Edit</div>' : ''}
-            <div class="seg" role="radiogroup" aria-label="Type">${K.map(([v,l]) => `<button type="button" role="radio" aria-checked="${mkind===v}" data-mk="${v}">${l}</button>`).join('')}</div>
-            <label><span data-lbl="desc"></span><input id="md" value="${em ? esc(em.desc) : ''}" autocomplete="off" required></label>
-            <div class="two" data-show="once m y"><label><span data-lbl="cost"></span><input id="mc" inputmode="decimal" value="${em && !em.loan ? num(em.cost) : ''}" placeholder="0.00"></label>
-              <label><span data-lbl="date"></span><input id="mdt" type="date" value="${em && em.date ? esc(em.date) : toInput(now())}"></label></div>
-            <div data-show="loan" style="display:grid;gap:10px">
-              <div class="two"><label>Amount borrowed<input id="la" inputmode="decimal" value="${em && em.loan ? num(em.loan.amt) : (num(it.price) || '')}" placeholder="0.00"></label>
-                <label>Interest rate (APR %)<input id="lr" inputmode="decimal" value="${em && em.loan ? num(em.loan.apr) : ''}" placeholder="6.9"></label></div>
-              <div class="two"><label>Length (months)<input id="lt" inputmode="numeric" value="${em && em.loan ? num(em.loan.term) : ''}" placeholder="60"></label>
-                <label>First payment<input id="ld" type="date" value="${em && em.loan && em.date ? esc(em.date) : (it.bought || toInput(now()))}"></label></div>
-              <div id="lprev" style="font-size:.85rem;color:var(--muted)"></div></div>
-            <label data-show="m y loan"><span data-lbl="end"></span><input id="mend" type="date" value="${em && em.end ? esc(em.end) : ''}"></label>
-            <div class="two"><button type="button" class="btn ghost" id="mcancel">Cancel</button><button class="btn">${em ? 'Save' : 'Add'}</button></div></form>`; })()
-          : `<button class="btn ghost wide" id="madd" style="margin-top:10px">＋ Add maintenance</button>`}
+        ${formOrAdd}
       </div>
-      ${it.note ? `<div class="section">Notes</div><div class="card" style="white-space:pre-wrap">${esc(it.note)}</div>` : ''}
+      ${noteHtml}
       <div class="two" style="margin-top:14px"><button class="btn ghost" id="edit">✏️ Edit</button>
         <button class="btn danger" id="del">${armed==='item' ? 'Tap again to delete' : '🗑 Delete'}</button></div>`;
-    document.getElementById('back').onclick = () => go(from);
+    }
+    document.getElementById('back').onclick = () => { if (detail) { detail = false; editMaint = false; armed = null; render(); window.scrollTo(0,0); } else go(from); };
+    const td = document.getElementById('todetail'); if (td) td.onclick = () => { detail = true; editMaint = false; armed = null; render(); window.scrollTo(0,0); };
     if (!purl && it.photo) loadPhotos();
-    document.getElementById('edit').onclick = () => go('edit', it.id);
-    document.getElementById('cvsave').onclick = () => {
+    const eb = document.getElementById('edit'); if (eb) eb.onclick = () => go('edit', it.id);
+    const cvs = document.getElementById('cvsave'); if (cvs) cvs.onclick = () => {
       const v = num(document.getElementById('cvin').value);
       if (v > 0) { it.curVal = v; it.curValOn = now(); } else { delete it.curVal; delete it.curValOn; }
       touch(it); save(); document.activeElement && document.activeElement.blur(); render(); toast(v > 0 ? 'Saved. Worth ' + money(v, 0) : 'Back to the 20%-a-year estimate');
     };
-    document.getElementById('del').onclick = () => { if (armed==='item') { it.del = true; touch(it); save(); toast('Deleted'); go(from); } else { armed = 'item'; render(); } };
+    const db = document.getElementById('del'); if (db) db.onclick = () => { if (armed==='item') { it.del = true; touch(it); save(); toast('Deleted'); go(from); } else { armed = 'item'; render(); } };
     const ma = document.getElementById('madd'); if (ma) ma.onclick = () => { editMaint = true; mkind = 'once'; armed = null; render(); };
     const mc = document.getElementById('mcancel'); if (mc) mc.onclick = () => { editMaint = false; render(); };
     const LBL = { once: {desc:'What was done', ph:'Oil change, new tires, resize…', cost:'Cost', date:'Date'},
