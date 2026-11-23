@@ -183,12 +183,13 @@
     const nextYear = monthly * 12 + yearly + loanNext;
     // Worth now: loses 20% of its value each year (price × 0.8 ^ years owned).
     // Sell-for target: get your money back, counting as acceptable loss the depreciation plus 50% of the upkeep.
-    //   target = total put in − depreciation − 50% of upkeep  =  worth now + 50% of upkeep
+    //   target = total put in − depreciation − 50% of upkeep (depreciation never below zero)
     const years = (days - 1) / 365.25, est = num(it.price) * Math.pow(1 - DEPR, years);
     const mine = num(it.curVal) > 0, value = mine ? num(it.curVal) : est;   // your own value wins over the 20%/yr estimate
-    const depr = num(it.price) - value, target = value + maint * (1 - UPKEEP_LOSS);
+    // If it's worth more than you paid, that's a gain, not a loss: depreciation stops at zero, so the target never tops what you put in.
+    const depr = Math.max(0, num(it.price) - value), target = Math.max(0, num(it.price) + maint - depr - maint * UPKEEP_LOSS);
     return { days, maint, monthly, yearly, loanNext, ongoing: monthly + yearly / 12, total, perDay, perMonth: perDay * 30.44, perYear: perDay * 365.25,
-      in365: (total + nextYear) / (days + 365), years, value, est, mine, depr, target, accepted: depr + maint * UPKEEP_LOSS, above: target - value };
+      in365: (total + nextYear) / (days + 365), years, value, est, mine, depr, target, accepted: depr + maint * UPKEEP_LOSS, above: Math.max(0, target - value), gain: value - target };
   }
   // Monthly charges (insurance, payments, storage): one charge on the start date, then the same day each month,
   // until today or until it was stopped
@@ -506,6 +507,7 @@
           <div style="display:flex;gap:8px"><input id="cvin" inputmode="decimal" value="${c.mine ? num(it.curVal) : ''}" placeholder="${Math.round(c.est)}"
             style="flex:1;border:1.5px solid ${c.mine ? 'var(--accent)' : 'var(--line)'};border-radius:12px;padding:11px 12px;background:var(--bg);color:var(--ink);font-size:16px;font-weight:700">
           <button class="btn" id="cvsave" type="button">Save</button></div></label></div>
+        ${c.gain > 0 ? `<div style="text-align:center;margin-top:10px;font-weight:700;color:var(--accent)">Worth more than that! Selling for ${money(c.value, 0)} would put you ${money(c.gain, 0)} ahead.</div>` : ''}
         <div style="font-size:.8rem;color:var(--muted);margin-top:8px">Acceptable loss = ${money(c.depr, 0)} ${c.mine ? 'lost in value' : 'depreciation'} + ${money(c.maint * UPKEEP_LOSS, 0)} (50% of upkeep).</div>
       </div>
       <div class="section">Maintenance & upkeep · ${ms.length}</div>
