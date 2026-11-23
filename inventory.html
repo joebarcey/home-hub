@@ -154,7 +154,7 @@
   const live = a => (a||[]).filter(x => !x.del && !x.soldOn);   // no sold items: once something's gone, it's removed
   const touch = x => { x.u = now(); };
   const DEFAULT_CATS = [
-    {id:'veh', name:'Vehicles', ic:'🚗'}, {id:'book', name:'Books', ic:'📚'}, {id:'tool', name:'Tools', ic:'🔧'},
+    {id:'veh', name:'Vehicles', ic:'🚗'}, {id:'book', name:'Library', ic:'📚'}, {id:'tool', name:'Tools', ic:'🔧'},
     {id:'jew', name:'Jewelry', ic:'💍'}, {id:'elec', name:'Electronics', ic:'📱'}, {id:'home', name:'Home & Furniture', ic:'🛋️'},
     {id:'out', name:'Outdoor & Sports', ic:'⛺'}, {id:'other', name:'Other', ic:'📦'}
   ].map((c,i) => Object.assign(c, {o:i, c:0, u:0}));
@@ -167,6 +167,15 @@
   if (!data.cats.length) data.cats = DEFAULT_CATS.map(c => Object.assign({}, c));
   let dirty = false;
   try { dirty = localStorage.getItem(LS + '-dirty') === '1'; } catch(e){}
+  // The Books category is now called Library (done once; after the first sync too, so an older "Books" from Drive can't undo it)
+  function toLibrary(done){
+    let flag = ''; try { flag = localStorage.getItem('inv-library-v1') || ''; } catch(e){}
+    if (flag) return;
+    const bk = data.cats.find(c => c.id === 'book' && c.name === 'Books');
+    if (bk) { bk.name = 'Library'; bk.u = Date.now(); dirty = true; }
+    if (done) try { localStorage.setItem('inv-library-v1', '1'); } catch(e){}
+  }
+  toLibrary(false);
   function store(){ lsSet(LS, JSON.stringify(data)); try { localStorage.setItem(LS + '-dirty', dirty ? '1' : '0'); } catch(e){} }
   function save(){ dirty = true; store(); scheduleSync(); }
 
@@ -252,6 +261,7 @@
       const before = JSON.stringify(data);
       mergeList(data.items, remote.items, 'maint');
       mergeList(data.cats, remote.cats, null);
+      toLibrary(true);
       const changed = JSON.stringify(data) !== before;
       const fp = d => JSON.stringify([(d.items||[]).map(i => i.id + ':' + (i.u||0) + ':' + (i.maint||[]).map(m => m.id + (m.u||0)).sort().join()).sort(), (d.cats||[]).map(c => c.id + ':' + (c.u||0)).sort()]);
       if (dirty || fp(remote) !== fp(data)) {
@@ -408,7 +418,19 @@
     const byName = (a,b) => a.name.localeCompare(b.name);
     const inCat = id => all.filter(i => i.cat === id).sort(byName);
     const f = gcat === 'all' ? null : cat(gcat);
-    const list = f ? inCat(f.id) : all;
+    let list = f ? inCat(f.id) : all;
+    // Library: a tab for each genre
+    let genreTabs = '';
+    if (f && isBook(f.id)) {
+      const gs = [...new Set(list.map(i => i.genre || '').filter(Boolean))].sort((a,b) => a.localeCompare(b));
+      const none = list.filter(i => !i.genre).length;
+      if (ggenre !== 'all' && ggenre !== '_' && !gs.includes(ggenre)) ggenre = 'all';
+      if (gs.length) genreTabs = `<div class="gchips" role="tablist" style="margin-top:2px">
+        <button class="gchip" role="tab" data-genre="all" aria-checked="${ggenre==='all'}">All <small>${list.length}</small></button>
+        ${gs.map(g => `<button class="gchip" role="tab" data-genre="${esc(g)}" aria-checked="${ggenre===g}">${esc(g)} <small>${list.filter(i => i.genre === g).length}</small></button>`).join('')}
+        ${none ? `<button class="gchip" role="tab" data-genre="_" aria-checked="${ggenre==='_'}">No genre <small>${none}</small></button>` : ''}</div>`;
+      if (ggenre === '_') list = list.filter(i => !i.genre); else if (ggenre !== 'all') list = list.filter(i => i.genre === ggenre);
+    }
     const worth = list.reduce((s,i) => s + calc(i).value, 0);
     const backBtn = f ? `<button class="back" id="gback" aria-label="Back to categories">‹</button>`
       : (FROM_HUB ? `<button class="back" id="hub" aria-label="Back to Home Hub">‹</button>` : '');
@@ -429,9 +451,10 @@
     }
     const scanBtn = f && isBook(f.id) ? `<button class="gbtn" id="scanbook" style="width:100%;padding:12px;margin-bottom:10px;font-size:.95rem">📷 Scan a book’s barcode</button>` : '';
     app.innerHTML = `<header>${backBtn}<h1>${f ? f.ic + ' ' + esc(f.name) : 'Inventory'}</h1><div class="sync" id="sync">${syncText()}</div>${bgButton()}</header>
-      ${tools}${scanBtn}${sum}${body}
+      ${tools}${scanBtn}${genreTabs}${sum}${body}
       <button class="btn fab center" id="add" style="background:var(--hero)">＋ Add item</button><div style="height:90px"></div>`;
-    app.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { gcat = b.dataset.g; renderGrid(); window.scrollTo(0,0); });
+    app.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { gcat = b.dataset.g; ggenre = 'all'; renderGrid(); window.scrollTo(0,0); });
+    app.querySelectorAll('[data-genre]').forEach(b => b.onclick = () => { ggenre = b.dataset.genre; renderGrid(); });
     app.querySelectorAll('[data-gopen]').forEach(b => b.onclick = () => { from = 'grid'; go('item', b.dataset.gopen); });
     document.getElementById('num').onclick = () => { filter = f ? f.id : 'home'; go('list'); };
     document.getElementById('gcats').onclick = () => { from = 'grid'; go('cats'); };
@@ -601,12 +624,12 @@
       const j = await fetch('https://openlibrary.org/api/books?bibkeys=ISBN:' + isbn + '&format=json&jscmd=data').then(r => r.json());
       const b = j && j['ISBN:' + isbn];
       if (b && b.title) return { title: b.title + (b.subtitle ? ': ' + b.subtitle : ''), authors: (b.authors || []).map(a => a.name).join(', '),
-        cover: 'https://covers.openlibrary.org/b/isbn/' + isbn + '-L.jpg?default=false' };
+        cover: 'https://covers.openlibrary.org/b/isbn/' + isbn + '-L.jpg?default=false', subjects: (b.subjects || []).map(x => x.name || x) };
     } catch(e){}
     try {
       const j = await fetch('https://www.googleapis.com/books/v1/volumes?q=isbn:' + isbn).then(r => r.json());
       const v = j && j.items && j.items[0] && j.items[0].volumeInfo;
-      if (v && v.title) return { title: v.title + (v.subtitle ? ': ' + v.subtitle : ''), authors: (v.authors || []).join(', '), cover: '' };
+      if (v && v.title) return { title: v.title + (v.subtitle ? ': ' + v.subtitle : ''), authors: (v.authors || []).join(', '), cover: '', subjects: v.categories || [] };
     } catch(e){}
     return null;
   }
@@ -623,7 +646,22 @@
       setTimeout(() => res(''), 8000);
     });
   }
-  const isBook = id => { const c = cat(id); return !!c && (c.id === 'book' || /book/i.test(c.name || '')); };
+  // Genres for the Library. Any genre you type becomes a tab too.
+  const GENRES = ['Fiction','Mystery & Thriller','Sci-Fi & Fantasy','Romance','Horror','Biography & Memoir','History','Religion & Faith',
+    'Self-Help','Business & Money','Kids & Young Adult','Cooking','Home & Garden','Sports & Outdoors','Reference','Poetry'];
+  const GENRE_WORDS = [['Kids & Young Adult',/juvenile|children|young adult|picture book/],['Cooking',/cook|recipe/],['Home & Garden',/garden|plants|home improvement|house/],
+    ['Religion & Faith',/relig|christian|bible|spiritual|theolog|church|faith|god/],['Biography & Memoir',/biograph|memoir|autobiograph/],
+    ['Mystery & Thriller',/myster|detective|thriller|suspense|crime/],['Sci-Fi & Fantasy',/science fiction|fantasy|dragon|magic|space opera/],
+    ['Romance',/romance|love stor/],['Horror',/horror|ghost|vampire/],['Self-Help',/self-help|self-improvement|success|motivation|personal growth/],
+    ['Business & Money',/business|finance|econom|management|invest|money/],['Sports & Outdoors',/sport|fitness|outdoor|hunting|fishing|camping/],
+    ['Poetry',/poetry|poems/],['History',/history|war/],['Reference',/dictionar|encyclop|reference|handbook|manual/],['Fiction',/fiction|novel/]];
+  function guessGenre(subjects){
+    const t = (subjects || []).join(' | ').toLowerCase(); if (!t) return '';
+    for (const [g, re] of GENRE_WORDS) if (re.test(t)) return g;
+    return '';
+  }
+  let ggenre = 'all';
+  const isBook = id => { const c = cat(id); return !!c && (c.id === 'book' || /book|librar/i.test(c.name || '')); };
   let scanNow = false;   // open the camera as soon as the Add form shows (from "Scan a book")
   function renderItem(){
     const it = live(data.items).find(x => x.id === openId); if (!it) return go(from);
@@ -656,7 +694,7 @@
         <div class="card" style="text-align:center">
           <div class="big2" style="margin:2px 0 2px">${perDayFmt(c.perDay)}</div><div style="color:var(--muted)">per day</div>
           <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)"><small style="color:var(--muted)">Paid</small> <b style="font-size:1.15rem">${money(num(it.price))}</b></div>
-          ${it.isbn ? `<div style="margin-top:6px;font-size:.88rem;color:var(--muted)">ISBN ${isbnFmt(it.isbn)}</div>` : ''}</div>
+          ${it.genre || it.isbn ? `<div style="margin-top:6px;font-size:.88rem;color:var(--muted)">${[it.genre ? esc(it.genre) : '', it.isbn ? 'ISBN ' + isbnFmt(it.isbn) : ''].filter(Boolean).join(' · ')}</div>` : ''}</div>
         ${noteHtml}
         <div class="card">${formOrAdd}</div>`;
     } else {
@@ -784,7 +822,7 @@
 
   function renderEdit(){
     const it = openId ? live(data.items).find(x => x.id === openId) : null;
-    const v = it || { name:'', cat: filter!=='all' && filter!=='home' ? filter : 'veh', price:'', bought: toInput(now()), note:'' };
+    const v = it || { name:'', cat: filter!=='all' && filter!=='home' ? filter : 'veh', price:'', bought: toInput(now()), note:'', genre: ggenre !== 'all' && ggenre !== '_' ? ggenre : '' };
     const cats = live(data.cats).sort((a,b) => (a.o||0) - (b.o||0));
     app.innerHTML = header(it ? 'Edit item' : 'Add item', true) +
       `<form class="f card" id="f">
@@ -793,7 +831,10 @@
         <div id="isbnbox" style="display:${isBook(v.cat) ? 'grid' : 'none'};gap:4px"><div style="font-size:.85rem;font-weight:600;color:var(--muted)">ISBN</div>
           <div style="display:flex;gap:8px"><input id="isbn" inputmode="numeric" value="${esc(isbnFmt(v.isbn || ''))}" placeholder="Scan the barcode or type it" autocomplete="off" style="flex:1;min-width:0">
             <label class="btn ghost" style="cursor:pointer;white-space:nowrap;display:flex;align-items:center">📷 Scan<input type="file" id="isbnin" accept="image/*" hidden></label></div>
-          <div id="isbnmsg" style="font-size:.84rem;color:var(--muted)"></div></div>
+          <div id="isbnmsg" style="font-size:.84rem;color:var(--muted)"></div>
+          <div style="font-size:.85rem;font-weight:600;color:var(--muted);margin-top:6px">Genre</div>
+          <input id="genre" list="genrelist" value="${esc(v.genre || '')}" placeholder="Pick one or type your own" autocomplete="off">
+          <datalist id="genrelist">${[...new Set(GENRES.concat(live(data.items).map(i => i.genre).filter(Boolean)))].sort().map(g => `<option value="${esc(g)}">`).join('')}</datalist></div>
         <div class="two"><label>Price paid<input id="p" inputmode="decimal" value="${v.price===''?'':num(v.price)}" placeholder="0.00" required></label>
           <label>Date bought<input id="b" type="date" value="${esc(v.bought)}" required></label></div>
         <div><div style="font-size:.85rem;font-weight:600;color:var(--muted);margin-bottom:4px">Photo (optional)</div>
@@ -824,6 +865,7 @@
       if (!b) { say('ISBN ' + isbnFmt(isbn) + ' saved. Couldn’t find the title online, so type it in above.'); return; }
       const n = document.getElementById('n'), no = document.getElementById('no');
       if (!n.value.trim()) n.value = b.title;
+      const ge = document.getElementById('genre'), gg = guessGenre(b.subjects); if (gg && !ge.value.trim()) ge.value = gg;
       if (b.authors && !no.value.trim()) no.value = 'by ' + b.authors;
       say('📚 <b>' + esc(b.title) + '</b>' + (b.authors ? ' by ' + esc(b.authors) : '') +
         (n.value.trim() !== b.title ? ' · <a href="#" id="usetitle" style="color:var(--accent)">Use this title</a>' : ''), true);
@@ -851,6 +893,7 @@
       x.price = num(document.getElementById('p').value); x.bought = document.getElementById('b').value;
       x.note = document.getElementById('no').value.trim();
       { const raw = document.getElementById('isbn').value.trim(), c = isbnClean(raw);
+        const gv = document.getElementById('genre').value.trim(); if (isBook(x.cat) && gv) x.genre = gv; else if (isBook(x.cat)) delete x.genre;
         if (c) x.isbn = c; else if (!raw) delete x.isbn; else if (/^\d{12,13}$/.test(raw.replace(/\D/g, ''))) x.isbn = raw.replace(/\D/g, ''); }
       if (newPhoto !== null) savePhoto(x, newPhoto);
       touch(x); if (!it) data.items.push(x);
