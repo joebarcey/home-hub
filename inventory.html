@@ -662,10 +662,43 @@
         res(cv.toDataURL('image/jpeg', 0.9)); }; img.onerror = rej; img.src = rd.result; }; rd.onerror = rej; rd.readAsDataURL(file); });
       if (onStep) onStep();
       const r = await Promise.race([w.recognize(url), new Promise((_, rej) => setTimeout(() => rej('slow'), 60000))]);
-      const text = (r && r.data && r.data.text) || '';
+      const data = (r && r.data) || {}, text = data.text || '';
       const found = isbnsInText(text);
-      return found.find(c => /^97/.test(c) && /ISBN/i.test(text)) || found[0] || '';
-    } catch(e){ return ''; }
+      const isbn = found.find(c => /^97/.test(c) && /ISBN/i.test(text)) || found[0] || '';
+      // If the numbers are unreadable, the title is usually the biggest words on a store sticker
+      const STICK = /^(CLASSICS?|ALPHA|SPRAY|SALE|PRICE|USED|NEW|FICTION|NONFICTION|PAPERBACK|HARDCOVER|BARGAIN|CLEARANCE|JOB|QTY|SKU)$/i;
+      let title = '';
+      const lines = (data.lines || []).map(l => {
+        const words = (l.words || []).filter(w => (w.confidence || 0) >= 50 && /^[A-Za-z'’&]{2,}$/.test(w.text) && !STICK.test(w.text));
+        const h = words.length ? Math.max(...words.map(w => (w.bbox ? w.bbox.y1 - w.bbox.y0 : 0))) : 0;
+        return {t: words.map(w => w.text).join(' '), h, n: words.reduce((a, w) => a + w.text.length, 0)};
+      }).filter(l => l.n >= 5);
+      if (lines.length) title = lines.sort((a, b) => b.h - a.h)[0].t;
+      else title = (text.split('\n').map(l => l.split(/\s+/).filter(w => /^[A-Za-z'’&]{2,}$/.test(w) && !STICK.test(w)).join(' ')).filter(l => l.replace(/\s/g, '').length >= 5).sort((a, b) => b.length - a.length)[0]) || '';
+      const hints = (text.replace(/[\s\-]/g, '').match(/\d{4,}/g) || []);
+      return {isbn, title, hints, text};
+    } catch(e){ return {}; }
+  }
+  // Find editions by title (and the publisher, if the sticker shows it). Returns [{title, authors, publisher, year, isbn, thumb}]
+  async function booksByTitle(q, text){
+    const out = [];
+    try {
+      const j = await fetch('https://www.googleapis.com/books/v1/volumes?printType=books&maxResults=20&q=' + encodeURIComponent('intitle:' + q)).then(r => r.json());
+      (j.items || []).forEach(v => { const i = v.volumeInfo || {}, id = (i.industryIdentifiers || []).find(x => x.type === 'ISBN_13') || (i.industryIdentifiers || []).find(x => x.type === 'ISBN_10');
+        const isbn = id && isbnClean(id.identifier); if (!isbn) return;
+        out.push({title: i.title + (i.subtitle ? ': ' + i.subtitle : ''), authors: (i.authors || []).join(', '), publisher: i.publisher || '', year: (i.publishedDate || '').slice(0, 4), isbn,
+          thumb: i.imageLinks && (i.imageLinks.smallThumbnail || i.imageLinks.thumbnail) ? String(i.imageLinks.smallThumbnail || i.imageLinks.thumbnail).replace(/^http:/, 'https:') : ''}); });
+    } catch(e){}
+    if (!out.length) try {
+      const j = await fetch('https://openlibrary.org/search.json?limit=15&fields=title,author_name,publisher,first_publish_year,isbn&title=' + encodeURIComponent(q)).then(r => r.json());
+      (j.docs || []).forEach(d => { const isbn = (d.isbn || []).map(isbnClean).find(Boolean); if (!isbn) return;
+        out.push({title: d.title, authors: (d.author_name || []).join(', '), publisher: (d.publisher || [])[0] || '', year: d.first_publish_year || '', isbn, thumb: ''}); });
+    } catch(e){}
+    // the edition whose publisher shows on the sticker (e.g. ARCTURUS) goes first
+    const T = String(text || '').toUpperCase();
+    const seen = new Set(), list = out.filter(b => !seen.has(b.isbn) && seen.add(b.isbn));
+    list.forEach(b => { b.score = 0; String(b.publisher).toUpperCase().split(/[^A-Z]+/).forEach(w => { if (w.length >= 5 && T.includes(w)) b.score += 5; }); });
+    return list.sort((a, b) => b.score - a.score);
   }
   const isbnFmt = s => s && s.length === 13 ? s.slice(0,3) + '-' + s.slice(3) : (s || '');
   // Look the book up (Open Library, then Google Books). Returns {title, authors, cover} or null.
@@ -911,7 +944,8 @@
         <div id="isbnbox" style="display:${isBook(v.cat) ? 'grid' : 'none'};gap:4px"><div style="font-size:.85rem;font-weight:600;color:var(--muted)">ISBN</div>
           <div style="display:flex;gap:8px"><input id="isbn" inputmode="numeric" value="${esc(isbnFmt(v.isbn || ''))}" placeholder="Scan the barcode or type it" autocomplete="off" style="flex:1;min-width:0">
             <label class="btn ghost" style="cursor:pointer;white-space:nowrap;display:flex;align-items:center">📷 Scan<input type="file" id="isbnin" accept="image/*" hidden></label></div>
-          <div id="isbnmsg" style="font-size:.84rem;color:var(--muted)"></div></div>
+          <div id="isbnmsg" style="font-size:.84rem;color:var(--muted)"></div>
+          <a href="#" id="findtitle" style="font-size:.84rem;color:var(--accent)">🔎 No ISBN? Find it by the title in the Name box</a></div>
         <div id="grpbox" style="display:${hasGroups(v.cat) ? 'grid' : 'none'};gap:4px"><div id="grplbl" style="font-size:.85rem;font-weight:600;color:var(--muted)">${groupWord(v.cat) === 'genre' ? 'Genre' : 'Type'}</div>
           <div id="grpchips" class="gchips" style="margin:0 0 2px"></div>
           <input id="genre" list="genrelist" value="${esc(v.genre || '')}" placeholder="Pick one or type your own" autocomplete="off">
@@ -976,11 +1010,32 @@
       if (r.isbn) { ii.value = isbnFmt(r.isbn); lookedUp = ''; fillFrom(r.isbn); return; }
       // No book barcode (maybe just a store sticker): read the printed numbers instead
       say((r.other ? 'That’s a store barcode (' + r.other + '). ' : '') + '🔎 Reading the printed numbers for the ISBN… (the first time takes a little longer)');
-      const found = await ocrIsbn(fl, () => say((r.other ? 'That’s a store barcode. ' : '') + '🔎 Reading the printed numbers…'));
-      if (found) { ii.value = isbnFmt(found); lookedUp = ''; say('Found ISBN ' + isbnFmt(found) + ' in the printed numbers.', true); fillFrom(found); return; }
+      const o = await ocrIsbn(fl, () => say((r.other ? 'That’s a store barcode. ' : '') + '🔎 Reading the printed numbers…'));
+      if (o.isbn) { ii.value = isbnFmt(o.isbn); lookedUp = ''; say('Found ISBN ' + isbnFmt(o.isbn) + ' in the printed numbers.', true); fillFrom(o.isbn); return; }
+      // Numbers unreadable: use the title on the sticker to find the edition
+      if (o.title) {
+        say('🔎 Couldn’t read the ISBN digits, so looking up “' + esc(o.title) + '”…');
+        const list = await booksByTitle(o.title, o.text);
+        // digits we did manage to read point to the right edition
+        const hit = list.filter(b => (o.hints || []).some(h => h.length >= 5 && b.isbn.includes(h)));
+        if (hit.length === 1) { ii.value = isbnFmt(hit[0].isbn); lookedUp = ''; say('Matched ISBN ' + isbnFmt(hit[0].isbn) + ' from the sticker.', true); fillFrom(hit[0].isbn); return; }
+        if (list.length) return showEditions(hit.length ? hit : list, o.title);
+      }
       say((r.other ? 'Only found a store barcode (' + r.other + '), and no ISBN in the printed numbers. ' : 'Couldn’t find a barcode or an ISBN in that picture. ') +
-        'Try the barcode that starts with 978, or a picture of the copyright page a few pages in, where the ISBN is printed. You can also type it.');
+        'Try the barcode that starts with 978, or a picture of the copyright page a few pages in, where the ISBN is printed. You can also type it, or type the title above and tap “Find by title.”');
     };
+    function showEditions(list, q){
+      im.style.color = 'var(--muted)';
+      im.innerHTML = `Couldn’t read the ISBN digits. The sticker says <b>“${esc(q)}”</b>. Tap your edition:
+        <div style="display:grid;gap:6px;margin-top:6px">${list.slice(0, 8).map((b, n) => `<button type="button" class="btn ghost" data-ed="${n}" style="display:flex;gap:10px;align-items:center;text-align:left;padding:8px">
+          ${b.thumb ? `<img src="${esc(b.thumb)}" alt="" style="width:34px;height:50px;object-fit:cover;border-radius:4px;flex:none">` : '<span style="width:34px;text-align:center;flex:none">📚</span>'}
+          <span style="flex:1;min-width:0;font-size:.84rem;line-height:1.3"><b>${esc(b.title)}</b><br>${esc([b.authors, b.publisher, b.year].filter(Boolean).join(' · '))}<br><span style="color:var(--muted)">ISBN ${isbnFmt(b.isbn)}</span></span></button>`).join('')}</div>`;
+      im.querySelectorAll('[data-ed]').forEach(btn => btn.onclick = () => { const b = list[+btn.dataset.ed]; ii.value = isbnFmt(b.isbn); lookedUp = ''; fillFrom(b.isbn); });
+    }
+    const fbt = document.getElementById('findtitle'); if (fbt) fbt.onclick = async e => { e.preventDefault();
+      const q = document.getElementById('n').value.trim(); if (!q) { say('Type the title in the Name box first.'); return; }
+      say('🔎 Looking up “' + esc(q) + '”…'); const list = await booksByTitle(q, '');
+      if (list.length) showEditions(list, q); else say('Couldn’t find that title online. Check the spelling, or type the ISBN.'); };
     ii.addEventListener('change', () => { const c = isbnClean(ii.value); if (c) { ii.value = isbnFmt(c); fillFrom(c); } else if (ii.value.trim()) say('That doesn’t look like a full ISBN. Check the digits (10 or 13).'); });
     if (scanNow) { scanNow = false; document.getElementById('isbnin').click(); }
     document.getElementById('f').onsubmit = e => {
