@@ -299,6 +299,7 @@
   function render(){
     if (view === 'grid') return renderGrid();
     if (view === 'genres') return renderGenres();
+    if (view === 'dups') return renderDups();
     if (view === 'item') return renderItem();
     if (view === 'edit') return renderEdit();
     if (view === 'cats') return renderCats();
@@ -440,7 +441,9 @@
     const worth = list.reduce((s,i) => s + calc(i).value, 0);
     const backBtn = f ? `<button class="back" id="gback" aria-label="Back to categories">‹</button>`
       : (FROM_HUB ? `<button class="back" id="hub" aria-label="Back to Home Hub">‹</button>` : '');
-    const tools = `<div class="gtools2"><button class="gbtn" id="num">📊 Numbers</button><button class="gbtn" id="gcats">✎ Categories</button></div>`;
+    const nd = dupGroups().filter(g => !f || g.some(i => i.cat === f.id)).length;
+    const tools = `<div class="gtools2"><button class="gbtn" id="num">📊 Numbers</button><button class="gbtn" id="gcats">✎ Categories</button></div>` +
+      (nd ? `<button class="gbtn" id="dupsbtn" style="width:100%;padding:11px;margin-bottom:10px;font-size:.92rem;border-color:var(--warn);color:var(--warn)">⚠️ ${nd} possible duplicate${nd === 1 ? '' : 's'}. Tap to check</button>` : '');
     const sum = `<div class="gsum">${list.length} item${list.length===1?'':'s'} · worth about ${money(worth, 0)}</div>`;
     let body;
     if (!f) {
@@ -466,6 +469,7 @@
     document.getElementById('num').onclick = () => { filter = f ? f.id : 'home'; go('list'); };
     document.getElementById('gcats').onclick = () => { from = 'grid'; go('cats'); };
     document.getElementById('add').onclick = () => { from = 'grid'; filter = f ? f.id : 'home'; go('edit', null); };
+    const db0 = document.getElementById('dupsbtn'); if (db0) db0.onclick = () => go('dups');
     const sb = document.getElementById('scanbook'); if (sb) sb.onclick = () => { from = 'grid'; filter = f.id; scanNow = true; go('edit', null); };
     const gb = document.getElementById('gback'); if (gb) gb.onclick = () => { gcat = 'all'; renderGrid(); window.scrollTo(0,0); };
     const hb = document.getElementById('hub'); if (hb) hb.onclick = () => { location.href = 'index.html' + (SYNC_URL ? '?sync=' + SYNC_URL : ''); };
@@ -743,6 +747,30 @@
     for (const [g, re] of GENRE_WORDS) if (re.test(t)) return g;
     return '';
   }
+  // ---------- duplicates: same ISBN, or the same name in the same category ----------
+  const normName = n => String(n || '').toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9]+/g, ' ').replace(/^(the|a|an) /, '').trim();
+  function sameAs(x, skipId){
+    const nn = normName(x.name);
+    return live(data.items).filter(i => i.id !== skipId && ((x.isbn && i.isbn && i.isbn === x.isbn) || (nn && i.cat === x.cat && normName(i.name) === nn)));
+  }
+  function dupGroups(){
+    const groups = {}, all = live(data.items);
+    all.forEach(i => { const k = i.isbn ? 'isbn:' + i.isbn : 'name:' + i.cat + ':' + normName(i.name); if (normName(i.name) || i.isbn) (groups[k] = groups[k] || []).push(i); });
+    return Object.values(groups).filter(g => g.length > 1);
+  }
+  const shortDate = d => { const t = parseDate(d); return t ? new Date(t).toLocaleDateString([], {month:'numeric', day:'numeric', year:'2-digit'}) : ''; };
+  function renderDups(){
+    const gs = dupGroups();
+    app.innerHTML = header('⚠️ Possible duplicates', true) +
+      (gs.length ? `<div class="card" style="font-size:.9rem;color:var(--muted)">These look like the same thing entered more than once (same ISBN, or same name in the same category). Tap one to open it. If it really is a second copy, you can leave it.</div>` +
+        gs.map(g => `<div class="card">${g.map(i => { const url = photoUrl(i), k = cat(i.cat);
+          return `<button class="item" data-dopen="${i.id}" style="margin:0 0 6px"><span class="gimg${url ? '' : ' none'}" data-photo="${i.id}" style="width:44px;height:44px;flex:none;border-radius:9px;display:flex;align-items:center;justify-content:center;${url ? 'background-image:url(' + url + ')' : ''}">${url ? '' : k.ic}</span>
+            <span class="mid"><span class="nm" style="display:block">${esc(i.name)}</span><span class="meta">${k.ic} ${esc(k.name)}${i.bought ? ' · bought ' + shortDate(i.bought) : ''}${i.isbn ? ' · ISBN ' + isbnFmt(i.isbn) : ''} · ${money(num(i.price))}</span></span></button>`; }).join('')}</div>`).join('')
+        : `<div class="empty">No duplicates. 👍</div>`) + `<div style="height:40px"></div>`;
+    document.getElementById('back').onclick = () => go('grid');
+    app.querySelectorAll('[data-dopen]').forEach(b => b.onclick = () => { from = 'dups'; go('item', b.dataset.dopen); });
+    loadPhotos();
+  }
   let ggenre = 'all', genreCat = 'book';
   // One page to give every book a genre: pick from the list or type your own
   function renderGenres(){
@@ -940,6 +968,7 @@
     app.innerHTML = header(it ? 'Edit item' : 'Add item', true) +
       `<form class="f card" id="f">
         <label>Name<input id="n" value="${esc(v.name)}" placeholder="2019 F-150, Grandpa's watch, DeWalt drill…" autocomplete="off" required></label>
+        <div id="dupmsg" style="display:none;border:1.5px solid var(--warn);border-radius:12px;padding:10px 12px;font-size:.88rem;color:var(--ink)"></div>
         <label>Category<select id="c">${cats.map(c => `<option value="${c.id}" ${v.cat===c.id?'selected':''}>${c.ic} ${esc(c.name)}</option>`).join('')}</select></label>
         <div id="isbnbox" style="display:${isBook(v.cat) ? 'grid' : 'none'};gap:4px"><div style="font-size:.85rem;font-weight:600;color:var(--muted)">ISBN</div>
           <div style="display:flex;gap:8px"><input id="isbn" inputmode="numeric" value="${esc(isbnFmt(v.isbn || ''))}" placeholder="Scan the barcode or type it" autocomplete="off" style="flex:1;min-width:0">
@@ -957,7 +986,7 @@
           <div class="two" style="margin-top:8px"><label class="btn ghost" style="text-align:center;cursor:pointer">📷 ${photoUrl(it) ? 'Change' : 'Add'} photo<input type="file" id="phin" accept="image/*" hidden></label>
             <button type="button" class="btn ghost" id="phdel" ${photoUrl(it) ? '' : 'disabled style="opacity:.4"'}>Remove photo</button></div></div>
         <label>Notes (optional)<textarea id="no" rows="2" placeholder="Serial number, where it's from, warranty…">${esc(v.note||'')}</textarea></label>
-        <button class="btn wide">${it ? 'Save' : 'Add item'}</button>
+        <button class="btn wide" id="savebtn">${it ? 'Save' : 'Add item'}</button>
       </form>`;
     document.getElementById('back').onclick = () => it ? go('item', it.id) : go(from);
     let newPhoto = null;   // data URL, '' to remove, null for no change
@@ -986,13 +1015,31 @@
     gi.addEventListener('input', () => paintGroups(document.getElementById('c').value));
     document.getElementById('c').addEventListener('change', e => { ib.style.display = isBook(e.target.value) ? 'grid' : 'none'; paintGroups(e.target.value); });
     let lookedUp = '';
+    // Warn when this looks like something already in the inventory
+    let dupOk = false;
+    function checkDup(){
+      const dm = document.getElementById('dupmsg'), x = {name: document.getElementById('n').value, cat: document.getElementById('c').value, isbn: isbnClean(document.getElementById('isbn').value)};
+      const d = sameAs(x, it ? it.id : null);
+      if (!d.length) { dm.style.display = 'none'; dupOk = false; document.getElementById('savebtn').textContent = it ? 'Save' : 'Add item'; return []; }
+      const o = d[0], k = cat(o.cat);
+      dm.style.display = 'block';
+      dm.innerHTML = `⚠️ <b>You already have this${d.length > 1 ? ' (' + d.length + ' times)' : ''}:</b> “${esc(o.name)}” in ${k.ic} ${esc(k.name)}${o.bought ? ', bought ' + shortDate(o.bought) : ''}${x.isbn && o.isbn === x.isbn ? ' (same ISBN)' : ''}.
+        <a href="#" id="dupopen" style="color:var(--accent)">Open it</a>${it ? '' : ' · or add it anyway if this is another copy.'}`;
+      document.getElementById('dupopen').onclick = e => { e.preventDefault(); from = 'grid'; go('item', o.id); };
+      return d;
+    }
+    document.getElementById('n').addEventListener('change', checkDup);
+    document.getElementById('c').addEventListener('change', checkDup);
+    document.getElementById('isbn').addEventListener('change', () => setTimeout(checkDup, 0));
     async function fillFrom(isbn){
       if (!isbn || lookedUp === isbn) return; lookedUp = isbn;
+      if (checkDup().length) toast('⚠️ You already have this one');
       say('🔎 Looking up the book…');
       const b = await bookLookup(isbn);
       if (!b) { say('ISBN ' + isbnFmt(isbn) + ' saved. Couldn’t find the title online, so type it in above.'); return; }
       const n = document.getElementById('n'), no = document.getElementById('no');
       if (!n.value.trim()) n.value = b.title;
+      if (checkDup().length) toast('⚠️ You already have this one');
       const ge = document.getElementById('genre'), gg = guessGenre(b.subjects); if (gg && !ge.value.trim()) ge.value = gg;
       if (b.authors && !no.value.trim()) no.value = 'by ' + b.authors;
       say('📚 <b>' + esc(b.title) + '</b>' + (b.authors ? ' by ' + esc(b.authors) : '') +
@@ -1040,6 +1087,8 @@
     if (scanNow) { scanNow = false; document.getElementById('isbnin').click(); }
     document.getElementById('f').onsubmit = e => {
       e.preventDefault();
+      if (!it && !dupOk && checkDup().length) { dupOk = true; document.getElementById('savebtn').textContent = 'Add another copy anyway';
+        document.getElementById('dupmsg').scrollIntoView({block:'center'}); toast('⚠️ Looks like a duplicate. Tap again to add it anyway.'); return; }
       const x = it || {id: uid(), maint: [], c: now()};
       x.name = document.getElementById('n').value.trim(); x.cat = document.getElementById('c').value;
       x.price = num(document.getElementById('p').value); x.bought = document.getElementById('b').value;
