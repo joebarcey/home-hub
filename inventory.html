@@ -535,9 +535,11 @@
       }));
       return [bd, bs, be];
     }
+    const isIsbnCode = c => /^97[89]\d{10}$/.test(c);
     const checkOk = s => { let t = 0; for (let i = 0; i < 12; i++) t += (+s[i]) * (i % 2 ? 3 : 1); return (10 - t % 10) % 10 === +s[12]; };
     // runs: widths starting with a dark run
     function fromRuns(runs){
+      const found = [];
       for (let i = 0; i + 59 <= runs.length; i += 2) {
         const m = (runs[i] + runs[i+1] + runs[i+2]) / 3;
         if (m < 0.8) continue;
@@ -554,9 +556,9 @@
         if (!ok) continue;
         const first = PARITY.indexOf(par); if (first < 0) continue;
         const code = first + left + right;
-        if (checkOk(code)) return code;
+        if (checkOk(code)) { found.push(code); i += 56; }
       }
-      return null;
+      return found;
     }
     function lineRuns(g, thr){ // g: gray values, thr: threshold per pixel; returns runs starting with dark
       const runs = []; let cur = g[0] < thr[0], n = 0, started = false;
@@ -581,12 +583,11 @@
         const avg2 = new Float32Array(W); for (let x = 0; x < W; x++) avg2[x] = avg[Math.min(W - 1, x + (win >> 1))];
         for (const thr of [flat, avg2]) {
           const runs = lineRuns(g, thr);
-          let code = fromRuns(runs) || fromRuns(runs.slice().reverse().slice(runs.length % 2 ? 0 : 1));
-          if (code) { votes[code] = (votes[code] || 0) + 1; if (votes[code] >= 3) return code; }
+          const codes = fromRuns(runs).concat(fromRuns(runs.slice().reverse().slice(runs.length % 2 ? 0 : 1)));
+          for (const code of codes) { votes[code] = (votes[code] || 0) + 1; if (votes[code] >= 3 && isIsbnCode(code)) return votes; }
         }
       }
-      let top = null; for (const k in votes) if (!top || votes[k] > votes[top]) top = k;
-      return top;
+      return votes;
     }
     function draw(img, angle, maxW){
       const sc = Math.min(1, maxW / Math.max(img.width, img.height));
@@ -597,21 +598,30 @@
       c.translate(cw / 2, ch / 2); c.rotate(a); c.drawImage(img, -w / 2, -h / 2, w, h);
       return cv;
     }
+    // Returns {isbn, other}: the book's own barcode (978/979) if there is one, and any other barcode (like a store sticker)
     async function fromImage(img){
+      const all = {};
+      const pick = () => { let isbn = null, other = null;
+        for (const k in all) { if (isIsbnCode(k)) { if (!isbn || all[k] > all[isbn]) isbn = k; } else if (!other || all[k] > all[other]) other = k; }
+        return {isbn, other}; };
       if ('BarcodeDetector' in window) {
-        try { const r = await new BarcodeDetector({formats:['ean_13']}).detect(img); if (r && r[0] && /^\d{13}$/.test(r[0].rawValue)) return r[0].rawValue; } catch(e){}
+        try { const r = await new BarcodeDetector({formats:['ean_13','upc_a','ean_8','upc_e']}).detect(img);
+          (r || []).forEach(x => { if (/^\d{8,13}$/.test(x.rawValue)) all[x.rawValue] = 9; });
+          if (pick().isbn) return pick(); } catch(e){}
       }
       for (const maxW of [1400, 2400, 900]) for (const ang of [0, 90, -7, 7, 83, 97, -14, 14]) {
-        const code = scanCanvas(draw(img, ang, maxW)); if (code) return code;
+        const v = scanCanvas(draw(img, ang, maxW));
+        for (const k in v) all[k] = (all[k] || 0) + v[k];
+        if (pick().isbn) return pick();
         await new Promise(r => setTimeout(r, 0));   // let the screen update between tries
       }
-      return null;
+      return pick();
     }
     function fromFile(file){
       return new Promise((res) => {
         const rd = new FileReader();
-        rd.onload = () => { const img = new Image(); img.onload = () => fromImage(img).then(res, () => res(null)); img.onerror = () => res(null); img.src = rd.result; };
-        rd.onerror = () => res(null); rd.readAsDataURL(file);
+        rd.onload = () => { const img = new Image(); img.onload = () => fromImage(img).then(res, () => res({})); img.onerror = () => res({}); img.src = rd.result; };
+        rd.onerror = () => res({}); rd.readAsDataURL(file);
       });
     }
     return { fromFile, fromImage, checkOk };
@@ -623,6 +633,39 @@
       const b = '978' + s.slice(0, 9); let u = 0; for (let i = 0; i < 12; i++) u += (+b[i]) * (i % 2 ? 3 : 1); return b + ((10 - u % 10) % 10); }
     if (s.length === 13 && /^\d+$/.test(s) && EAN.checkOk(s)) return s;
     return '';
+  }
+  // Read the printed numbers in a picture and pick out an ISBN (e.g. "ISBN 978-0-06-112008-4" above a barcode or on the copyright page).
+  // Uses Tesseract (a free text reader). It downloads once, then the phone keeps it.
+  function isbnsInText(t){
+    const out = [];
+    const fixed = String(t || '').toUpperCase().replace(/(?<=\d[\s\-]?)O|O(?=[\s\-]?\d)/g, '0').replace(/\|/g, '1');
+    // runs of digits that may be split by spaces, dashes or dots
+    const runs = fixed.match(/[0-9X](?:[\s\-.‐–]?[0-9X]){8,16}/g) || [];
+    for (const r of runs) {
+      const d = r.replace(/[^0-9X]/g, '');
+      for (let i = 0; i + 13 <= d.length; i++) { const c = d.slice(i, i + 13); if (/^97[89]\d{10}$/.test(c) && EAN.checkOk(c)) out.push(c); }
+      if (d.length === 10) { const c = isbnClean(d); if (c) out.push(c); }   // older 10-digit ISBNs only when they stand alone
+    }
+    return [...new Set(out)];
+  }
+  let ocrLib = null, ocrWorker = null;
+  function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+  async function ocrIsbn(file, onStep){
+    try {
+      if (!ocrLib) ocrLib = loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+      await ocrLib;
+      if (!ocrWorker) ocrWorker = window.Tesseract.createWorker('eng');
+      const w = await ocrWorker;
+      const url = await new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => { const img = new Image(); img.onload = () => {
+        const sc = Math.min(1, 1800 / Math.max(img.width, img.height)), cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * sc); cv.height = Math.round(img.height * sc); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        res(cv.toDataURL('image/jpeg', 0.9)); }; img.onerror = rej; img.src = rd.result; }; rd.onerror = rej; rd.readAsDataURL(file); });
+      if (onStep) onStep();
+      const r = await Promise.race([w.recognize(url), new Promise((_, rej) => setTimeout(() => rej('slow'), 60000))]);
+      const text = (r && r.data && r.data.text) || '';
+      const found = isbnsInText(text);
+      return found.find(c => /^97/.test(c) && /ISBN/i.test(text)) || found[0] || '';
+    } catch(e){ return ''; }
   }
   const isbnFmt = s => s && s.length === 13 ? s.slice(0,3) + '-' + s.slice(3) : (s || '');
   // Look the book up (Open Library, then Google Books). Returns {title, authors, cover} or null.
@@ -929,11 +972,14 @@
     document.getElementById('isbnin').onchange = async e => {
       const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (!fl) return;
       say('📷 Reading the barcode…');
-      const code = await EAN.fromFile(fl);
-      if (!code) { say('Couldn’t find a barcode in that picture. Get close, hold it straight, with good light, or type the number.'); return; }
-      ii.value = isbnFmt(code);
-      if (!/^97[89]/.test(code)) { say('Read ' + code + ', but that’s a store barcode, not an ISBN. Books have a second barcode starting with 978 or 979.'); return; }
-      lookedUp = ''; fillFrom(code);
+      const r = await EAN.fromFile(fl);
+      if (r.isbn) { ii.value = isbnFmt(r.isbn); lookedUp = ''; fillFrom(r.isbn); return; }
+      // No book barcode (maybe just a store sticker): read the printed numbers instead
+      say((r.other ? 'That’s a store barcode (' + r.other + '). ' : '') + '🔎 Reading the printed numbers for the ISBN… (the first time takes a little longer)');
+      const found = await ocrIsbn(fl, () => say((r.other ? 'That’s a store barcode. ' : '') + '🔎 Reading the printed numbers…'));
+      if (found) { ii.value = isbnFmt(found); lookedUp = ''; say('Found ISBN ' + isbnFmt(found) + ' in the printed numbers.', true); fillFrom(found); return; }
+      say((r.other ? 'Only found a store barcode (' + r.other + '), and no ISBN in the printed numbers. ' : 'Couldn’t find a barcode or an ISBN in that picture. ') +
+        'Try the barcode that starts with 978, or a picture of the copyright page a few pages in, where the ISBN is printed. You can also type it.');
     };
     ii.addEventListener('change', () => { const c = isbnClean(ii.value); if (c) { ii.value = isbnFmt(c); fillFrom(c); } else if (ii.value.trim()) say('That doesn’t look like a full ISBN. Check the digits (10 or 13).'); });
     if (scanNow) { scanNow = false; document.getElementById('isbnin').click(); }
