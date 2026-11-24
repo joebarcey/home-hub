@@ -50,6 +50,11 @@
   .danger{color:var(--warn)}
   .back{flex:0 0 auto;padding:.3em .6em}
   .menu .main{padding:.6em .8em}
+  .invrow{justify-content:flex-start!important;gap:.5em!important}
+  .ithumb{flex:none;width:1.9em;height:1.9em;border-radius:.3em;background:#1c1c1c center/cover no-repeat;display:flex;align-items:center;justify-content:center;font-size:.9em}
+  .iname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ibig{display:flex;align-items:center;justify-content:center;width:100%;height:52vh;border-radius:14px;background:#111 center/contain no-repeat;margin-bottom:2vw;font-size:3em}
+  .row .main.iinfo{flex-direction:column!important;align-items:flex-start!important;justify-content:flex-start!important;gap:.15em;text-align:left}
   .menu .icon{margin-right:.5em}
   .note-body{white-space:pre-wrap;line-height:1.4;border:2px solid var(--line);border-radius:14px;padding:.6em .8em;margin-bottom:2vw}
   .small{font-size:.8em}
@@ -343,7 +348,7 @@
   }
 
   // Re-draw after new data arrives without yanking the cursor around.
-  const FOCUS_ATTRS=['data-hcat','data-scat','data-gtog','data-grm','data-sopen','data-sgo','data-ovp','data-ovw','data-rowopen','data-shopback','data-mgone','data-mrm','data-mback','data-stab','data-mtog','data-edit','data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
+  const FOCUS_ATTRS=['data-invc','data-invi','data-hcat','data-scat','data-gtog','data-grm','data-sopen','data-sgo','data-ovp','data-ovw','data-rowopen','data-shopback','data-mgone','data-mrm','data-mback','data-stab','data-mtog','data-edit','data-eline','data-gsec','data-pick','data-gall','data-gtab','data-fgrp','data-lk','data-copen','data-job','data-jtab','data-toggle','data-del','data-go','data-open','data-tab','data-ntab','data-note','data-move','data-ptab','data-pri','data-setpri','data-ctab','data-call'];
   function refresh(){
     const a=document.activeElement;
     if (a && a.tagName==='INPUT' && a.value) return;   // don't interrupt typing
@@ -530,7 +535,8 @@
     const inv = `<div class="row menu"><button class="main" id="inv"><span><span class="icon">📦</span>Inventory</span><span class="sub">${invCount ? invCount + ' items' : ''}</span></button></div>`;
     app.innerHTML = `<header><h1>Home Hub</h1><span id="sync" class="sub"></span></header><div class="scroll">${rows}${inv}</div>`;
     showStatus();
-    document.getElementById('inv').onclick = () => { location.href = 'inventory.html?hub=1' + (SYNC_URL ? '&sync=' + SYNC_URL : ''); };
+    // Phone and computer open the full Inventory app; the glasses get a simple picture view built in here
+    document.getElementById('inv').onclick = () => { if (IS_PHONE || IS_DESK) location.href = 'inventory.html?hub=1' + (SYNC_URL ? '&sync=' + SYNC_URL : ''); else go('#/inv'); };
     if (SYNC_URL && !invAsked) { invAsked = true; fetch(SYNC_URL + '?action=get&space=inventory&t=' + Date.now(), {cache:'no-store'}).then(r => r.json()).then(d => {
       const n = ((d && d.items) || []).filter(i => !i.del).length; if (n !== invCount) { invCount = n; if (location.hash === '' || location.hash === '#/') render(); } }).catch(() => {}); }
     app.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>go('#/'+b.dataset.go));
@@ -1329,6 +1335,66 @@
   function render(){
     renderPage(); applyBg(); addBgButton();
   }
+
+  // ---------- Inventory on the glasses: categories → items with pictures → one big picture ----------
+  let inv = null, invBusy = false;
+  const invPh = {};   // photos kept in memory while Home Hub is open
+  function invLoad(){
+    if (!SYNC_URL || invBusy) return; invBusy = true;
+    fetch(SYNC_URL + '?action=get&space=inventory&t=' + Date.now(), {cache:'no-store'}).then(r => r.json()).then(d => {
+      inv = d || {}; invBusy = false; if (/^(inv|invi)$/.test(route().a)) render();
+    }).catch(() => { invBusy = false; inv = inv || {}; if (/^(inv|invi)$/.test(route().a)) render(); });
+  }
+  const invCats = () => live((inv && inv.cats) || []).sort((a,b) => (a.o||0) - (b.o||0));
+  const invItems = () => live((inv && inv.items) || []);
+  const money0 = n => '$' + Math.round(+n || 0).toLocaleString();
+  function invPhotoLoad(){
+    app.querySelectorAll('[data-iph]').forEach(el => {
+      const [id, v] = el.dataset.iph.split('|');
+      const have = invPh[id];
+      if (have && have.v === v) { if (have.d) el.style.backgroundImage = 'url(' + have.d + ')'; return; }
+      invPh[id] = {v, d: ''};
+      fetch(SYNC_URL + '?action=photo&id=' + encodeURIComponent(id) + '&t=' + Date.now(), {cache:'no-store'}).then(r => r.json()).then(j => {
+        if (!j || !j.ok || !j.data) { delete invPh[id]; return; }
+        invPh[id] = {v, d: 'data:image/jpeg;base64,' + j.data};
+        app.querySelectorAll(`[data-iph^="${id}|"]`).forEach(x => { x.style.backgroundImage = 'url(' + invPh[id].d + ')'; x.classList.add('got'); });
+      }).catch(() => { delete invPh[id]; });
+    });
+  }
+  const iph = (it, cls) => it.photo ? `<span class="${cls}${invPh[it.id] && invPh[it.id].d ? ' got' : ''}" data-iph="${it.id}|${it.photo}" style="${invPh[it.id] && invPh[it.id].d && invPh[it.id].v === String(it.photo) ? 'background-image:url(' + invPh[it.id].d + ')' : ''}"></span>` : '';
+  function renderInv(catId){
+    if (!inv) invLoad();
+    const c = catId ? invCats().find(x => x.id === catId) : null;
+    if (!inv) { app.innerHTML = header('📦 Inventory', '#/') + `<div class="scroll"><div class="empty">Loading…</div></div>`; wireBack('#/'); return; }
+    if (!c) {
+      const rows = invCats().map(k => { const n = invItems().filter(i => i.cat === k.id).length; if (!n) return '';
+        return `<div class="row menu"><button class="main" data-invc="${k.id}"><span><span class="icon">${esc(k.ic || '📦')}</span>${esc(k.name)}</span><span class="sub">${n}</span></button></div>`; }).join('');
+      app.innerHTML = header('📦 Inventory', '#/') + `<div class="scroll">${rows || '<div class="empty">Nothing in your inventory yet.</div>'}</div>`;
+    } else {
+      const list = invItems().filter(i => i.cat === c.id).sort((a,b) => String(a.name).localeCompare(String(b.name)));
+      app.innerHTML = header(esc((c.ic || '') + ' ' + c.name), '#/inv') + `<div class="scroll">${list.map(i =>
+        `<div class="row"><button class="main invrow" data-invi="${i.id}">${iph(i, 'ithumb') || `<span class="ithumb none">${esc(c.ic || '📦')}</span>`}<span class="iname">${esc(i.name)}</span></button></div>`).join('')}</div>`;
+    }
+    wireBack(c ? '#/inv' : '#/');
+    app.querySelectorAll('[data-invc]').forEach(b => b.onclick = () => go('#/inv/' + b.dataset.invc));
+    app.querySelectorAll('[data-invi]').forEach(b => b.onclick = () => go('#/invi/' + b.dataset.invi));
+    invPhotoLoad(); focusFirst();
+  }
+  function renderInvItem(id){
+    if (!inv) { invLoad(); app.innerHTML = header('📦 Inventory', '#/inv') + `<div class="scroll"><div class="empty">Loading…</div></div>`; wireBack('#/inv'); return; }
+    const it = invItems().find(x => x.id === id);
+    if (!it) { app.innerHTML = header('📦 Inventory', '#/inv') + `<div class="scroll"><div class="empty">That item isn’t here anymore.</div></div>`; wireBack('#/inv'); return; }
+    const c = invCats().find(x => x.id === it.cat) || {ic:'📦', name:''};
+    const days = it.bought ? Math.max(1, Math.round((Date.now() - new Date(it.bought + 'T12:00:00').getTime()) / 864e5)) : 0;
+    const owned = !days ? '' : days < 60 ? days + ' days' : days < 730 ? Math.round(days / 30.44) + ' months' : (days / 365.25).toFixed(1) + ' years';
+    app.innerHTML = header(esc(it.name), '#/inv/' + it.cat) + `<div class="scroll">
+      ${it.photo ? iph(it, 'ibig') : `<div class="ibig none">${esc(c.ic || '📦')}</div>`}
+      <div class="row"><button class="main iinfo" tabindex="0" style="cursor:default"><span class="sub">${esc(c.name)}${owned ? ' · owned ' + owned : ''}</span>
+        <span>Paid ${money0(it.price)}${it.genre ? ' · ' + esc(it.genre) : ''}</span>
+        ${it.note ? `<span class="sub" style="white-space:pre-wrap">${esc(it.note)}</span>` : ''}</button></div></div>`;
+    wireBack('#/inv/' + it.cat);
+    invPhotoLoad(); focusFirst();
+  }
   function renderPage(){
     formOpen=false;
     const r=route();
@@ -1343,6 +1409,8 @@
     else if (r.a==='contact' && r.b==='new') renderContactForm(null, r.c, r.d);
     else if (r.a==='contact' && r.b && r.c==='edit') renderContactForm(r.b);
     else if (r.a==='contact' && r.b) renderContact(r.b);
+    else if (r.a==='inv') renderInv(r.b);
+    else if (r.a==='invi' && r.b) renderInvItem(r.b);
     else if (sec && sec.kind==='priority') renderPriority(sec, r.b);
     else if (sec && sec.kind==='list') renderList(sec);
     else renderHome();
