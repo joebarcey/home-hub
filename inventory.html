@@ -210,7 +210,10 @@
     const mine = num(it.curVal) > 0, value = mine ? num(it.curVal) : est;   // your own value wins over the 20%/yr estimate
     // If it's worth more than you paid, that's a gain, not a loss: depreciation stops at zero, so the target never tops what you put in.
     const depr = Math.max(0, num(it.price) - value), target = Math.max(0, num(it.price) + maint - depr - maint * UPKEEP_LOSS);
-    return { days, maint, monthly, yearly, loanNext, ongoing: monthly + yearly / 12, total, perDay, perMonth: perDay * 30.44, perYear: perDay * 365.25,
+    // Per month / per year are a projection of the rate so far (perDay × 30/365) — but that rate is
+    // only ever meaningful up to what's actually been spent: you can't have paid more in a month or a
+    // year than the total you've put in to date, so cap both at `total`.
+    return { days, maint, monthly, yearly, loanNext, ongoing: monthly + yearly / 12, total, perDay, perMonth: Math.min(perDay * 30.44, total), perYear: Math.min(perDay * 365.25, total),
       in365: (total + nextYear) / (days + 365), years, value, est, mine, depr, target, accepted: depr + maint * UPKEEP_LOSS, above: Math.max(0, target - value), gain: value - target };
   }
   // Monthly charges (insurance, payments, storage): one charge on the start date, then the same day each month,
