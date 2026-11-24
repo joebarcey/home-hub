@@ -423,18 +423,18 @@
     const inCat = id => all.filter(i => i.cat === id).sort(byName);
     const f = gcat === 'all' ? null : cat(gcat);
     let list = f ? inCat(f.id) : all;
-    // Library: a tab for each genre
+    // Tabs inside a category: genres in the Library, types in Tools (Power / Battery / Hand), or any groups you've made
     let genreTabs = '';
-    if (f && isBook(f.id)) {
-      const gs = [...new Set(list.map(i => i.genre || '').filter(Boolean))].sort((a,b) => a.localeCompare(b));
+    if (f && hasGroups(f.id)) {
+      const gs = groupOrder(f.id, list.map(i => i.genre || '').filter(Boolean));
       const none = list.filter(i => !i.genre).length;
       if (ggenre !== 'all' && ggenre !== '_' && !gs.includes(ggenre)) ggenre = 'all';
-      if (!gs.length && list.length) genreTabs = `<button class="gbtn" id="sortgenres" style="width:100%;padding:12px;margin-bottom:10px;font-size:.95rem">🏷 Sort your books into genres</button>`;
+      if (!gs.length && list.length) genreTabs = `<button class="gbtn" id="sortgenres" style="width:100%;padding:12px;margin-bottom:10px;font-size:.95rem">🏷 Sort your ${isBook(f.id) ? 'books' : esc(f.name.toLowerCase())} into ${groupWord(f.id)}s</button>`;
       if (gs.length) genreTabs = `<div class="gchips" role="tablist" style="margin-top:2px">
         <button class="gchip" role="tab" data-genre="all" aria-checked="${ggenre==='all'}">All <small>${list.length}</small></button>
         ${gs.map(g => `<button class="gchip" role="tab" data-genre="${esc(g)}" aria-checked="${ggenre===g}">${esc(g)} <small>${list.filter(i => i.genre === g).length}</small></button>`).join('')}
-        ${none ? `<button class="gchip" role="tab" data-genre="_" aria-checked="${ggenre==='_'}">No genre <small>${none}</small></button>` : ''}
-        <button class="gchip" id="sortgenres" aria-label="Set genres">🏷 Edit genres</button></div>`;
+        ${none ? `<button class="gchip" role="tab" data-genre="_" aria-checked="${ggenre==='_'}">Not sorted <small>${none}</small></button>` : ''}
+        <button class="gchip" id="sortgenres" aria-label="Sort into ${groupWord(f.id)}s">🏷 Sort</button></div>`;
       if (ggenre === '_') list = list.filter(i => !i.genre); else if (ggenre !== 'all') list = list.filter(i => i.genre === ggenre);
     }
     const worth = list.reduce((s,i) => s + calc(i).value, 0);
@@ -671,24 +671,33 @@
   // One page to give every book a genre: pick from the list or type your own
   function renderGenres(){
     const books = live(data.items).filter(i => i.cat === genreCat).sort((a,b) => (!!a.genre - !!b.genre) || a.name.localeCompare(b.name));
-    const opts = [...new Set(GENRES.concat(live(data.items).map(i => i.genre).filter(Boolean)))].sort();
-    app.innerHTML = header('🏷 Book genres', true) +
-      `<div class="card" style="font-size:.9rem;color:var(--muted)">Pick a genre for each book, or type your own. Each genre becomes a tab in your Library. Books without one are at the top.</div>
+    const opts = groupOpts(genreCat), gw = groupWord(genreCat), gc = cat(genreCat);
+    app.innerHTML = header('🏷 ' + esc(gc.name) + ' ' + gw + 's', true) +
+      `<div class="card" style="font-size:.9rem;color:var(--muted)">Pick a ${gw} for each one, or type your own. Each ${gw} becomes a tab in ${esc(gc.name)}. Ones without a ${gw} are at the top.</div>
       <datalist id="genrelist">${opts.map(g => `<option value="${esc(g)}">`).join('')}</datalist>
       <div class="card">${books.map(i => { const url = photoUrl(i);
-        return `<div class="mrow" style="align-items:center;gap:10px"><div class="gimg${url ? '' : ' none'}" data-photo="${i.id}" style="width:46px;height:46px;flex:none;border-radius:9px;${url ? 'background-image:url(' + url + ')' : ''}">${url ? '' : '<span style="font-size:1.2rem">📚</span>'}</div>
+        return `<div class="mrow" style="align-items:center;gap:10px"><div class="gimg${url ? '' : ' none'}" data-photo="${i.id}" style="width:46px;height:46px;flex:none;border-radius:9px;${url ? 'background-image:url(' + url + ')' : ''}">${url ? '' : '<span style="font-size:1.2rem">' + gc.ic + '</span>'}</div>
           <div class="d" style="flex:1;min-width:0"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(i.name)}</b></div>
-          <input data-gset="${i.id}" list="genrelist" value="${esc(i.genre || '')}" placeholder="Genre…" autocomplete="off"
+          <input data-gset="${i.id}" list="genrelist" value="${esc(i.genre || '')}" placeholder="${gw === 'genre' ? 'Genre' : 'Type'}…" autocomplete="off"
             style="width:46%;min-width:0;border:1.5px solid ${i.genre ? 'var(--accent)' : 'var(--line)'};border-radius:10px;padding:9px;background:var(--bg);color:var(--ink);font-size:16px"></div>`; }).join('')
-        || '<div style="color:var(--muted)">No books yet.</div>'}</div>
+        || '<div style="color:var(--muted)">Nothing here yet.</div>'}</div>
       <button class="btn wide" id="gdone" style="margin:6px 0 30px">Done</button>`;
     const saveG = inp => { const it = data.items.find(x => x.id === inp.dataset.gset), v = inp.value.trim();
-      if ((it.genre || '') === v) return; if (v) it.genre = v; else delete it.genre; touch(it); save(); inp.style.borderColor = v ? 'var(--accent)' : 'var(--line)'; toast(v ? it.name + ': ' + v : 'Genre cleared'); };
+      if ((it.genre || '') === v) return; if (v) it.genre = v; else delete it.genre; touch(it); save(); inp.style.borderColor = v ? 'var(--accent)' : 'var(--line)'; toast(v ? it.name + ': ' + v : 'Cleared'); };
     app.querySelectorAll('[data-gset]').forEach(inp => { inp.onchange = () => saveG(inp); inp.onblur = () => saveG(inp); inp.onkeydown = e => { if (e.key === 'Enter') inp.blur(); }; });
     const back = () => { document.querySelectorAll('[data-gset]').forEach(saveG); gcat = genreCat; go('grid'); };
     document.getElementById('back').onclick = back; document.getElementById('gdone').onclick = back;
     loadPhotos();
   }
+  const isTool = id => { const c = cat(id); return !!c && (c.id === 'tool' || /tool/i.test(c.name || '')); };
+  const TOOL_TYPES = ['Power Tools', 'Battery Tools', 'Hand Tools'];
+  const hasGroups = id => isBook(id) || isTool(id) || live(data.items).some(i => i.cat === id && i.genre);
+  const groupWord = id => isBook(id) ? 'genre' : 'type';
+  const groupPresets = id => isBook(id) ? GENRES : isTool(id) ? TOOL_TYPES : [];
+  // Tools keep their order (Power, Battery, Hand) with anything you add after; genres go A to Z
+  const groupOrder = (id, names) => { const P = isTool(id) ? TOOL_TYPES : []; const extra = [...new Set(names)].filter(g => !P.includes(g)).sort((a,b) => a.localeCompare(b)); return P.concat(extra); };
+  const groupOpts = id => isTool(id) ? groupOrder(id, live(data.items).filter(i => i.cat === id).map(i => i.genre).filter(Boolean))
+    : [...new Set(groupPresets(id).concat(live(data.items).filter(i => i.cat === id).map(i => i.genre).filter(Boolean)))].sort((a,b) => a.localeCompare(b));
   const isBook = id => { const c = cat(id); return !!c && (c.id === 'book' || /book|librar/i.test(c.name || '')); };
   let scanNow = false;   // open the camera as soon as the Add form shows (from "Scan a book")
   function renderItem(){
@@ -859,10 +868,11 @@
         <div id="isbnbox" style="display:${isBook(v.cat) ? 'grid' : 'none'};gap:4px"><div style="font-size:.85rem;font-weight:600;color:var(--muted)">ISBN</div>
           <div style="display:flex;gap:8px"><input id="isbn" inputmode="numeric" value="${esc(isbnFmt(v.isbn || ''))}" placeholder="Scan the barcode or type it" autocomplete="off" style="flex:1;min-width:0">
             <label class="btn ghost" style="cursor:pointer;white-space:nowrap;display:flex;align-items:center">📷 Scan<input type="file" id="isbnin" accept="image/*" hidden></label></div>
-          <div id="isbnmsg" style="font-size:.84rem;color:var(--muted)"></div>
-          <div style="font-size:.85rem;font-weight:600;color:var(--muted);margin-top:6px">Genre</div>
+          <div id="isbnmsg" style="font-size:.84rem;color:var(--muted)"></div></div>
+        <div id="grpbox" style="display:${hasGroups(v.cat) ? 'grid' : 'none'};gap:4px"><div id="grplbl" style="font-size:.85rem;font-weight:600;color:var(--muted)">${groupWord(v.cat) === 'genre' ? 'Genre' : 'Type'}</div>
+          <div id="grpchips" class="gchips" style="margin:0 0 2px"></div>
           <input id="genre" list="genrelist" value="${esc(v.genre || '')}" placeholder="Pick one or type your own" autocomplete="off">
-          <datalist id="genrelist">${[...new Set(GENRES.concat(live(data.items).map(i => i.genre).filter(Boolean)))].sort().map(g => `<option value="${esc(g)}">`).join('')}</datalist></div>
+          <datalist id="genrelist"></datalist></div>
         <div class="two"><label>Price paid<input id="p" inputmode="decimal" value="${v.price===''?'':num(v.price)}" placeholder="0.00" required></label>
           <label>Date bought<input id="b" type="date" value="${esc(v.bought)}" required></label></div>
         <div><div style="font-size:.85rem;font-weight:600;color:var(--muted);margin-bottom:4px">Photo (optional)</div>
@@ -884,7 +894,20 @@
     // ---- ISBN: scan the barcode from a picture, then look the book up ----
     const ib = document.getElementById('isbnbox'), ii = document.getElementById('isbn'), im = document.getElementById('isbnmsg');
     const say = (t, good) => { im.innerHTML = t; im.style.color = good ? 'var(--accent)' : 'var(--muted)'; };
-    document.getElementById('c').addEventListener('change', e => { ib.style.display = isBook(e.target.value) ? 'grid' : 'none'; });
+    // Genre (Library) or Type (Tools): quick buttons for the choices, or type your own
+    const gb = document.getElementById('grpbox'), gi = document.getElementById('genre');
+    function paintGroups(cid){
+      gb.style.display = hasGroups(cid) ? 'grid' : 'none';
+      document.getElementById('grplbl').textContent = groupWord(cid) === 'genre' ? 'Genre' : 'Type';
+      const opts = groupOpts(cid);
+      document.getElementById('genrelist').innerHTML = opts.map(g => `<option value="${esc(g)}">`).join('');
+      const quick = isTool(cid) ? opts : [];
+      document.getElementById('grpchips').innerHTML = quick.map(g => `<button type="button" class="gchip" data-pick="${esc(g)}" aria-checked="${gi.value === g}">${esc(g)}</button>`).join('');
+      document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { gi.value = gi.value === b.dataset.pick ? '' : b.dataset.pick; paintGroups(cid); });
+    }
+    paintGroups(document.getElementById('c').value);
+    gi.addEventListener('input', () => paintGroups(document.getElementById('c').value));
+    document.getElementById('c').addEventListener('change', e => { ib.style.display = isBook(e.target.value) ? 'grid' : 'none'; paintGroups(e.target.value); });
     let lookedUp = '';
     async function fillFrom(isbn){
       if (!isbn || lookedUp === isbn) return; lookedUp = isbn;
@@ -921,7 +944,7 @@
       x.price = num(document.getElementById('p').value); x.bought = document.getElementById('b').value;
       x.note = document.getElementById('no').value.trim();
       { const raw = document.getElementById('isbn').value.trim(), c = isbnClean(raw);
-        const gv = document.getElementById('genre').value.trim(); if (isBook(x.cat) && gv) x.genre = gv; else if (isBook(x.cat)) delete x.genre;
+        const gv = document.getElementById('genre').value.trim(); if (hasGroups(x.cat) && gv) x.genre = gv; else delete x.genre;
         if (c) x.isbn = c; else if (!raw) delete x.isbn; else if (/^\d{12,13}$/.test(raw.replace(/\D/g, ''))) x.isbn = raw.replace(/\D/g, ''); }
       if (newPhoto !== null) savePhoto(x, newPhoto);
       touch(x); if (!it) data.items.push(x);
