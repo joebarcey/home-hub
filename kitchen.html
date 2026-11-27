@@ -405,6 +405,10 @@
   let recipeFilter = 'all';
   try { const v = localStorage.getItem(LS + '-rfilter'); if (v==='all' || v==='other' || CATS.some(c=>c.id===v)) recipeFilter = v; } catch(e){}
   function setFilter(v){ recipeFilter = v; try { localStorage.setItem(LS + '-rfilter', v); } catch(e){} }
+  // Meals page has its own tab, remembered separately (starts on Dinners)
+  let mealFilter = 'dinner';
+  try { const v = localStorage.getItem(LS + '-mfilter'); if (v==='all' || v==='other' || CATS.some(c=>c.id===v)) mealFilter = v; } catch(e){}
+  function setMealFilter(v){ mealFilter = v; try { localStorage.setItem(LS + '-mfilter', v); } catch(e){} }
 
   function findOrMakeRecipe(name, turnOn, cat){
     let r = live(data.recipes).find(x=>norm(x.name)===norm(name));
@@ -683,13 +687,22 @@
         <button class="switch" role="switch" aria-checked="${!!r.on}" aria-label="${esc(r.name)} on the menu" data-meal="${r.id}"></button>
       </div>`;
     };
-    const on = rs.filter(r=>r.on), off = rs.filter(r=>!r.on);
-    app.innerHTML = header('Meals') + addRow('New meal, like Taco Tuesday') +
+    const on = rs.filter(r=>r.on), off0 = rs.filter(r=>!r.on);
+    // Tabs: Breakfast, Dinners, Soups, Dressings & Dips, Desserts (same as Recipes). "On the menu" always shows everything that's on.
+    const cnt = id => off0.filter(r=>catOf(r)===id).length;
+    if (mealFilter==='other' && !cnt('other')) setMealFilter('all');
+    const chips = CATS.map(c=>({id:c.id, label:c.ic+' '+c.label, n:cnt(c.id)})).concat(cnt('other') ? [{id:'other', label:'No category', n:cnt('other')}] : []).concat([{id:'all', label:'All', n:off0.length}]);
+    const cur = CATS.find(c=>c.id===mealFilter);
+    const off = mealFilter==='all' ? off0 : off0.filter(r=>catOf(r)===mealFilter);
+    app.innerHTML = header('Meals') + addRow(cur ? 'New ' + cur.one + ', like ' + ({breakfast:'Pancakes', dinner:'Taco Tuesday', soup:'Chili', dressing:'Ranch', dessert:'Brownies'}[cur.id] || 'Taco Tuesday') : 'New meal, like Taco Tuesday') +
       (rs.length ? `<p class="sub" style="margin:0 4px 8px">Turn a meal on and its ingredients go on Weekly Shopping. Turn it off and they come back off.</p>` : '') +
       (on.length ? `<div class="section">On the menu · ${onCount}</div><div class="list">${on.map(row).join('')}</div>` : '') +
-      (off.length ? `<div class="section">${on.length?'Not this time':'All meals'}</div><div class="list">${off.map(row).join('')}</div>` : '') +
+      (off0.length ? `<div class="chips" role="tablist" aria-label="Meal types" style="margin-top:12px">${chips.map(c=>`<button class="chip" role="tab" data-mfilter="${c.id}" aria-selected="${c.id===mealFilter}">${esc(c.label)}${c.n?` <span class="chipn">${c.n}</span>`:''}</button>`).join('')}</div>` +
+        (off.length ? `<div class="list">${off.map(row).join('')}</div>`
+          : `<div class="empty">No ${cur ? esc(cur.label.toLowerCase()) : 'meals'} here yet.${cur ? '<br>Add one above, or open a recipe and set its category.' : ''}</div>`) : '') +
       (!rs.length ? `<div class="empty">No meals yet.<br>Add one above, then list its ingredients.</div>` : '');
-    wireAdd(t=>{ const r=findOrMakeRecipe(t, true); tab='recipes'; editing=r.id; render(); window.scrollTo(0,0);
+    app.querySelectorAll('[data-mfilter]').forEach(b=>b.onclick=()=>{ setMealFilter(b.dataset.mfilter); render(); const n=app.querySelector(`[data-mfilter="${b.dataset.mfilter}"]`); if(n){ n.scrollIntoView({block:'nearest', inline:'nearest'}); } });
+    wireAdd(t=>{ const r=findOrMakeRecipe(t, true, mealFilter); tab='recipes'; editing=r.id; render(); window.scrollTo(0,0);
       toast(ingredientsOf(r).length ? `${r.name} is on the menu` : `${r.name} is on the menu. Add its ingredients below.`); });
     app.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{ tab='recipes'; editing=b.dataset.open; render(); window.scrollTo(0,0); });
     app.querySelectorAll('[data-meal]').forEach(b=>b.onclick=()=>{
