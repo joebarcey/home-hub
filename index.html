@@ -36,6 +36,20 @@
   .x{flex:0 0 auto;color:var(--dim);text-align:center;min-width:2.2em}
   .done .t{color:var(--dim);text-decoration:line-through}
   .check{flex:0 0 auto;color:var(--good)}
+  .newn{display:inline-block;background:var(--warn);color:#000;border-radius:99px;font-size:.7em;padding:0 .45em;font-family:system-ui,sans-serif;font-weight:800}
+  #chatscroll{display:flex;flex-direction:column;gap:.35em}
+  .cmsg{max-width:85%;align-self:flex-start;background:#1c1c1c;border:2px solid var(--line);border-radius:.8em;border-bottom-left-radius:.25em;padding:.3em .55em;font-size:.8em}
+  .cmsg.mine{align-self:flex-end;background:#163220;border-bottom-left-radius:.8em;border-bottom-right-radius:.25em}
+  .cnm{font-size:.7em;font-weight:800;font-family:system-ui,sans-serif} .ctm{font-size:.55em;color:var(--dim);text-align:right;font-family:system-ui,sans-serif}
+  .ctx{white-space:pre-wrap;overflow-wrap:anywhere}
+  .cimg{display:block;max-width:100%;max-height:45vh;border-radius:.5em;margin:.2em 0;background:#222;min-width:5em;min-height:3em;cursor:zoom-in}
+  .cpick{flex:0 0 auto;border:2px solid var(--line);border-radius:14px;padding:.35em .5em;cursor:pointer}
+  body.light .cmsg{background:#fff} body.light .cmsg.mine{background:#d6efdd}
+  .cbig{position:fixed;inset:0;background:rgba(0,0,0,.94);display:flex;align-items:center;justify-content:center;z-index:99} .cbig img{max-width:100%;max-height:100%}
+  .who{display:inline-block;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:.55em;font-weight:800;padding:.1em .6em;border-radius:99px;margin:.25em .35em 0 0;color:#000;text-decoration:none;line-height:1.5}
+  .shbox{border:2px solid var(--line);border-radius:14px;padding:.5em .7em;margin:1vw 0 2vw;font-size:.75em}
+  .shbox input{width:100%;background:var(--field);border:2px solid var(--line);border-radius:10px;padding:.4em .5em;font-size:16px;margin:.4em 0;color:var(--fg)}
+  .shbox .acts{display:flex;gap:.4em;flex-wrap:wrap} .shbox .acts button{flex:1;text-align:center;white-space:nowrap}
   .tabs{display:flex;gap:2vw;flex:0 0 auto;margin-bottom:2vw}
   .tabs button{flex:1;text-align:center;font-size:.8em;padding:.4em .2em}
   .tabs button[aria-selected="true"]{border-color:var(--fg);background:var(--sel)}
@@ -237,7 +251,7 @@
   store();
 
   // ---------- sync ----------
-  const SUBS = PROJECT_TABS.map(t=>t.id);
+  const SUBS = PROJECT_TABS.map(t=>t.id).concat(['chat']);   // chat: messages with people the project is shared with
   const JOB_SUBS = ['tasks','materials'];
   const NEST = {projects:SUBS, honeydo:JOB_SUBS};   // lists that have lists inside each item
   function mergeList(a, b, subs){
@@ -371,7 +385,7 @@
     return { a:h[0]||'', b:h[1]||'', c:h[2]||'', d:h[3]||'' };
   }
   function go(hash, replace){
-    armed = null; bgMenu = false; editLine = null; editItem = null; openRow = null; shopOpen = null; showMgmt = false;
+    armed = null; bgMenu = false; editLine = null; editItem = null; openRow = null; shopOpen = null; showMgmt = false; shareOpen = null;
     if (replace) stack[stack.length-1] = hash; else stack.push(hash);
     if (histOK){
       try { if (replace) history.replaceState(null,'',hash); else history.pushState(null,'',hash); }
@@ -471,12 +485,15 @@
   }
   // Phone, inside projects and jobs: tap an entry to show its options (done / edit / delete) under it
   let openRow = null;
+  // Someone with a project's share link added or checked this: show their name in their color
+  const whoTag = (p, pre) => p && p.n ? `<span class="who" style="background:${esc(String(p.c || '#7bbcff').replace(/[^#0-9a-fA-F]/g, ''))}">${pre}${esc(p.n)}</span>` : '';
+  const whoTags = it => (it.by ? whoTag(it.by, '+ ') : '') + (it.done && it.doneBy ? whoTag(it.doneBy, '✓ ') : '');
   function checklistRows(arr, editable, onhand, tap){
     if (editable && (LIGHT || tap)) return live(arr).map(it=>{
       if (editItem===it.id) return editRow(it.text);
       const off = onhand && it.noshop && !it.done, open = openRow===it.id;
       return `<div class="row ${it.done?(onhand?'done onhand':'done'):''}">
-        <button class="main${open?' opened':''}" data-rowopen="${it.id}" aria-expanded="${open}"><span style="min-width:0"><span class="t">${esc(it.text)}</span>${off?'<span class="sub" style="display:block">not on shopping list</span>':''}</span><span class="check">${it.done?'✔':'○'}</span></button></div>` +
+        <button class="main${open?' opened':''}" data-rowopen="${it.id}" aria-expanded="${open}"><span style="min-width:0"><span class="t">${esc(it.text)}</span>${whoTags(it)}${off?'<span class="sub" style="display:block">not on shopping list</span>':''}</span><span class="check">${it.done?'✔':'○'}</span></button></div>` +
         (open ? `<div class="row rowacts">
           <button class="main" data-toggle="${it.id}" style="justify-content:center;color:var(--good)">${it.done?'↩ Undo':(onhand?'✔ Got it':'✔ Done')}</button>
           ${off?`<button class="main" data-shopback="${it.id}" style="justify-content:center">🛒 Shop</button>`:''}
@@ -485,7 +502,7 @@
     }).join('');
     return live(arr).map(it=> editable && editItem===it.id ? editRow(it.text) : `
       <div class="row ${it.done?(onhand?'done onhand':'done'):''}">
-        <button class="main" data-toggle="${it.id}"><span style="min-width:0"><span class="t">${esc(it.text)}</span>${onhand && it.noshop && !it.done?'<span class="sub" style="display:block">not on shopping list</span>':''}</span><span class="check">${it.done?'✔':'○'}</span></button>
+        <button class="main" data-toggle="${it.id}"><span style="min-width:0"><span class="t">${esc(it.text)}</span>${whoTags(it)}${onhand && it.noshop && !it.done?'<span class="sub" style="display:block">not on shopping list</span>':''}</span><span class="check">${it.done?'✔':'○'}</span></button>
         ${onhand && it.noshop && !it.done?`<button class="x" data-shopback="${it.id}" aria-label="Put back on the shopping list">🛒</button>`:''}
         ${editable?`<button class="x" data-edit="${it.id}" aria-label="Change">✏️</button>`:''}
         <button class="x ${armed===it.id?'danger':''}" data-del="${it.id}" aria-label="Delete">${armed===it.id?'Sure?':'✕'}</button>
@@ -502,6 +519,7 @@
     app.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{
       const it=getArr().find(i=>i.id===b.dataset.toggle); it.done=!it.done;
       if (it.done) it.doneAt=now(); else delete it.doneAt;
+      delete it.doneBy;   // you did it, not someone with the share link
       touch(it); armed=null; openRow=null; save(); render();
       if (!focusSel(`[data-toggle="${it.id}"]`) && !focusSel(`[data-rowopen="${it.id}"]`)) focusFirst();   // it may have moved to another tab
     });
@@ -537,7 +555,7 @@
     showStatus();
     // Phone and computer open the full Inventory app; the glasses get a simple picture view built in here
     document.getElementById('inv').onclick = () => { if (IS_PHONE || IS_DESK) location.href = 'inventory.html?hub=1' + (SYNC_URL ? '&sync=' + SYNC_URL : ''); else go('#/inv'); };
-    if (SYNC_URL && !invAsked) { invAsked = true; fetch(SYNC_URL + '?action=get&space=inventory&t=' + Date.now(), {cache:'no-store'}).then(r => r.json()).then(d => {
+    if (SYNC_URL && !invAsked) { invAsked = true; fetch(SYNC_URL + (SYNC_URL.includes('?') ? '&' : '?') + 'action=get&space=inventory&t=' + Date.now(), {cache:'no-store'}).then(r => r.json()).then(d => {
       const n = ((d && d.items) || []).filter(i => !i.del).length; if (n !== invCount) { invCount = n; if (location.hash === '' || location.hash === '#/') render(); } }).catch(() => {}); }
     app.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>go('#/'+b.dataset.go));
     focusFirst();
@@ -858,21 +876,97 @@
     if(!app.contains(document.activeElement)) focusSel('[aria-selected="true"]');
   }
 
+  // ----- Share a project: a private link that shows only this project's steps and materials -----
+  let shareOpen = null;
+  const shareLink = p => { const m = String(SYNC_URL).match(/\/s\/([\w-]+)\/exec/); return m && p.share ? 'https://joebarcey.github.io/home-hub/share.html#s=' + p.share + '&a=' + m[1] : ''; };
+  function newToken(){ try { const a = new Uint8Array(12); crypto.getRandomValues(a); return [...a].map(x => x.toString(16).padStart(2, '0')).join(''); } catch(e){ return (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)).slice(0, 24); } }
+  function shareHtml(p){
+    if (shareOpen !== p.id) return `<div class="row"><button class="main small" id="shareb" style="justify-content:center;color:var(--accent)">🔗 ${p.share ? 'Shared · see link' : 'Share this project'}</button></div>`;
+    const link = shareLink(p);
+    return `<div class="shbox"><b>🔗 Share link</b><div class="sub" style="font-size:1em">Anyone you send this to can see this project’s steps and materials, check things off and add to them. Their name shows in their own color.</div>
+      <input id="sharelink" value="${esc(link)}" readonly aria-label="Share link">
+      <div class="acts"><button class="main small" id="sharecopy">📋 Copy</button><button class="main small" id="sharetext">💬 Text it</button>
+        <button class="main small ${armed==='unshare'?'danger':''}" id="unshare">${armed==='unshare'?'Sure? Link stops working':'⛔ Stop sharing'}</button><button class="main small" id="shareclose">Close</button></div></div>`;
+  }
+  function wireShare(p){
+    const b = document.getElementById('shareb');
+    if (b) b.onclick = () => { if (!SYNC_URL) { toast('Link Home Hub to sync first.'); return; }
+      if (!p.share) { p.share = newToken(); touch(p); save(); toast('Link made. It works as soon as Home Hub says synced.'); }
+      shareOpen = p.id; armed = null; render(); };
+    const c = document.getElementById('sharecopy');
+    if (c) c.onclick = async () => { const i = document.getElementById('sharelink');
+      try { await navigator.clipboard.writeText(i.value); toast('Link copied'); } catch(e){ i.select(); toast('Select the link and copy it'); } };
+    const tx = document.getElementById('sharetext');
+    if (tx) tx.onclick = () => { const msg = 'Here’s our project “' + p.name + '” so you can see the steps and materials and check things off: ' + shareLink(p);
+      location.href = 'sms:' + (/iPhone|iPad|iPod/.test(navigator.userAgent) ? '&' : '?') + 'body=' + encodeURIComponent(msg); };
+    const un = document.getElementById('unshare');
+    if (un) un.onclick = () => { if (armed === 'unshare') { delete p.share; touch(p); armed = null; shareOpen = null; save(); render(); toast('Sharing stopped. The old link no longer works.'); }
+      else { armed = 'unshare'; render(); } };
+    const cl = document.getElementById('shareclose'); if (cl) cl.onclick = () => { shareOpen = null; armed = null; render(); };
+  }
+  // Project tabs, plus 💬 Chat once the project is shared (or has messages)
+  const hasChat = p => !!p.share || live(p.chat).length > 0;
+  const chatSeenKey = p => 'mrbd-hh-chat-seen-' + p.id;
+  function chatUnread(p){ let s = 0; try { s = +localStorage.getItem(chatSeenKey(p)) || 0; } catch(e){} return live(p.chat).filter(m => m.by && (m.at || m.c || 0) > s).length; }
+  function projTabs(p, cur){
+    const ts = PROJECT_TABS.map(t=>{ const c=live(p[t.id]).length; return `<button role="tab" data-tab="${t.id}" aria-selected="${t.id===cur}">${t.label}${c?' ('+c+')':''}</button>`; });
+    if (hasChat(p)) { const n = chatUnread(p); ts.push(`<button role="tab" data-tab="chat" aria-selected="${cur==='chat'}">💬${n ? ' <span class="newn">' + n + '</span>' : ' Chat'}</button>`); }
+    return `<div class="tabs" role="tablist">${ts.join('')}</div>`;
+  }
+  const chatPh = {};
+  const chatWhen = t => { const d = new Date(t), today = new Date().toDateString() === d.toDateString();
+    return (today ? '' : d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' ') + d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); };
+  function renderProjectChat(p){
+    if (!Array.isArray(p.chat)) p.chat = [];
+    const ms = live(p.chat).sort((a,b) => (a.at || a.c || 0) - (b.at || b.c || 0));
+    app.innerHTML = header(esc(p.name), '#/projects') + projTabs(p, 'chat') + `<div class="scroll" id="chatscroll">
+      ${ms.length ? ms.map(m => { const mine = !m.by, who = m.by;
+        return `<div class="cmsg ${mine ? 'mine' : ''}" tabindex="0">${mine ? '' : `<div class="cnm" style="color:${esc(String(who.c || '#7bbcff').replace(/[^#0-9a-fA-F]/g, ''))}">${esc(who.n)}</div>`}
+          ${m.ph ? `<img class="cimg" data-cph="${esc(m.id)}" alt="Picture"${chatPh[m.id] ? ` src="${chatPh[m.id]}"` : ''}>` : ''}
+          ${m.text ? `<div class="ctx">${esc(m.text)}</div>` : ''}<div class="ctm">${chatWhen(m.at || m.c || 0)}</div></div>`; }).join('')
+        : `<div class="empty">No messages yet.${p.share ? '<br>Everyone with the share link sees this chat.' : ''}</div>`}
+      </div>
+      <div class="add"><input id="newi" type="text" placeholder="Message" aria-label="Message">${IS_PHONE || IS_DESK ? '<label class="cpick" aria-label="Send a picture">📷<input type="file" id="chatpic" accept="image/*" hidden></label>' : ''}<button id="addi">Send</button></div>`;
+    wireBack('#/projects');
+    app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ go(`#/p/${p.id}/${b.dataset.tab}`, true); focusSel(`[data-tab="${b.dataset.tab}"]`); });
+    if (ms.length) try { localStorage.setItem(chatSeenKey(p), String(Math.max(...ms.map(m => m.at || m.c || 0)))); } catch(e){}
+    const sc = document.getElementById('chatscroll'); if (sc) sc.scrollTop = sc.scrollHeight;
+    app.querySelectorAll('img[data-cph]').forEach(im => { const id = im.dataset.cph;
+      im.onclick = () => { if (!im.src) return; const o = document.createElement('div'); o.className = 'cbig'; o.innerHTML = '<img alt="">'; o.firstChild.src = im.src; o.onclick = () => o.remove(); document.body.appendChild(o); };
+      if (chatPh[id] || !SYNC_URL) return;
+      fetch(SYNC_URL + (SYNC_URL.includes('?') ? '&' : '?') + 'action=photo&id=' + encodeURIComponent('chat-' + id) + '&t=' + Date.now(), {cache:'no-store'}).then(r => r.json()).then(j => {
+        if (j && j.ok && j.data) { chatPh[id] = 'data:image/jpeg;base64,' + j.data; app.querySelectorAll(`img[data-cph="${id}"]`).forEach(x => x.src = chatPh[id]); }
+      }).catch(() => {}); });
+    wireAdd(t => { p.chat.push({id: uid(), text: t, at: now(), c: now(), u: now()}); save(); render(); focusSel('#newi'); });
+    const pic = document.getElementById('chatpic');
+    if (pic) pic.onchange = e => { const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (!fl) return;
+      const rd = new FileReader(); rd.onload = () => { const img = new Image(); img.onload = () => {
+        const sc2 = Math.min(1, 1280 / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * sc2); c.height = Math.round(img.height * sc2);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); const d = c.toDataURL('image/jpeg', 0.72), id = uid();
+        chatPh[id] = d; const ni = document.getElementById('newi'), t = ni ? ni.value.trim() : '';
+        fetch(SYNC_URL + (SYNC_URL.includes('?') ? '&' : '?') + 'action=photo', {method:'POST', body: JSON.stringify({id: 'chat-' + id, data: d.split(',')[1]})})
+          .then(r => r.json()).then(j => { if (!j || !j.ok) toast('The picture didn’t send. Check your signal.'); }).catch(() => toast('The picture didn’t send. Check your signal.'));
+        p.chat.push({id, text: t, at: now(), c: now(), u: now(), ph: now()}); save(); render(); };
+        img.onerror = () => toast('Couldn’t open that picture.'); img.src = rd.result; }; rd.readAsDataURL(fl); };
+  }
   function renderProject(id, tabId){
     const p=live(data.projects).find(x=>x.id===id); if(!p) return go('#/projects', true);
+    if (tabId === 'chat' && hasChat(p)) return renderProjectChat(p);
     const tab=PROJECT_TABS.find(t=>t.id===tabId)||PROJECT_TABS[0];
     if(!Array.isArray(p[tab.id])) p[tab.id]=[];
     const g=progress(p);
     app.innerHTML = header(esc(p.name), '#/projects', g.n?g.pct+'%':'') + `
-      <div class="tabs" role="tablist">${PROJECT_TABS.map(t=>{ const c=live(p[t.id]).length; return `<button role="tab" data-tab="${t.id}" aria-selected="${t.id===tab.id}">${t.label}${c?' ('+c+')':''}</button>`; }).join('')}</div>
+      ${projTabs(p, tab.id)}
       <div class="scroll">
         ${checklistRows(p[tab.id], true, tab.id==='materials') || '<div class="empty">Nothing here yet.</div>'}
+        ${IS_PHONE || IS_DESK ? shareHtml(p) : ''}
         ${LIGHT && !showMgmt && editItem!=='pname' ? '' : `${editItem==='pname' ? editRow(p.name, 'Project name') : `<div class="row"><button class="main small" id="renp" style="justify-content:center">✏️ Rename project</button></div>`}
         <div class="row"><button class="main small ${armed===p.id?'danger':''}" id="delp" style="justify-content:center">${armed===p.id?'Press again to delete project':'🗑 Delete project'}</button></div>`}
       </div>` + addBox(tab.ph);
     wireBack('#/projects');
     app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ go(`#/p/${p.id}/${b.dataset.tab}`, true); focusSel(`[data-tab="${b.dataset.tab}"]`); });
     wireChecklist(()=>p[tab.id]);
+    wireShare(p);
     const rn=document.getElementById('renp'); if(rn) rn.onclick=()=>{ editItem='pname'; armed=null; render(); };
     if (editItem==='pname') wireEdit(v=>{ p.name=v; touch(p); }, '#renp');
     wireMgmt();
@@ -1337,13 +1431,23 @@
   }
 
   // ---------- Inventory on the glasses: categories → items with pictures → one big picture ----------
-  let inv = null, invBusy = false;
+  let inv = null, invBusy = false, invErr = '', invTries = 0;
   const invPh = {};   // photos kept in memory while Home Hub is open
+  const sq = () => SYNC_URL + (SYNC_URL.includes('?') ? '&' : '?');
   function invLoad(){
-    if (!SYNC_URL || invBusy) return; invBusy = true;
-    fetch(SYNC_URL + '?action=get&space=inventory&t=' + Date.now(), {cache:'no-store'}).then(r => r.json()).then(d => {
-      inv = d || {}; invBusy = false; if (/^(inv|invi)$/.test(route().a)) render();
-    }).catch(() => { invBusy = false; inv = inv || {}; if (/^(inv|invi)$/.test(route().a)) render(); });
+    if (invBusy) return;
+    if (!SYNC_URL) { invErr = 'Home Hub isn’t linked on this device (no sync link).'; if (/^(inv|invi)$/.test(route().a)) render(); return; }
+    invBusy = true; invErr = '';
+    const done = () => { invBusy = false; if (/^(inv|invi)$/.test(route().a)) render(); };
+    fetch(sq() + 'action=get&space=inventory&t=' + Date.now(), {cache:'no-store'}).then(r => r.text()).then(t => {
+      let d = null; try { d = JSON.parse(t); } catch(e){}
+      if (d && Array.isArray(d.items)) { inv = d; invTries = 0; return done(); }
+      throw new Error(d ? 'got ' + (Object.keys(d).slice(0, 4).join(', ') || 'nothing') : 'got ' + String(t).slice(0, 60));
+    }).catch(err => {
+      invTries++;
+      if (invTries < 3) { invBusy = false; setTimeout(invLoad, 1500 * invTries); return; }   // try a couple more times by itself
+      invErr = 'Couldn’t load the inventory (' + String(err && err.message || err).slice(0, 80) + ').'; invTries = 0; done();
+    });
   }
   const invCats = () => live((inv && inv.cats) || []).sort((a,b) => (a.o||0) - (b.o||0));
   const invItems = () => live((inv && inv.items) || []);
@@ -1354,7 +1458,7 @@
       const have = invPh[id];
       if (have && have.v === v) { if (have.d) el.style.backgroundImage = 'url(' + have.d + ')'; return; }
       invPh[id] = {v, d: ''};
-      fetch(SYNC_URL + '?action=photo&id=' + encodeURIComponent(id) + '&t=' + Date.now(), {cache:'no-store'}).then(r => r.json()).then(j => {
+      fetch(sq() + 'action=photo&id=' + encodeURIComponent(id) + '&t=' + Date.now(), {cache:'no-store'}).then(r => r.json()).then(j => {
         if (!j || !j.ok || !j.data) { delete invPh[id]; return; }
         invPh[id] = {v, d: 'data:image/jpeg;base64,' + j.data};
         app.querySelectorAll(`[data-iph^="${id}|"]`).forEach(x => { x.style.backgroundImage = 'url(' + invPh[id].d + ')'; x.classList.add('got'); });
@@ -1362,10 +1466,19 @@
     });
   }
   const iph = (it, cls) => it.photo ? `<span class="${cls}${invPh[it.id] && invPh[it.id].d ? ' got' : ''}" data-iph="${it.id}|${it.photo}" style="${invPh[it.id] && invPh[it.id].d && invPh[it.id].v === String(it.photo) ? 'background-image:url(' + invPh[it.id].d + ')' : ''}"></span>` : '';
+  function invWait(back){
+    app.innerHTML = header('📦 Inventory', back) + `<div class="scroll">${invErr
+      ? `<div class="empty">${esc(invErr)}</div><div class="row"><button class="main small" id="invretry" style="justify-content:center;color:var(--accent)">↻ Try again</button></div>`
+      : '<div class="empty">Loading…</div>'}</div>`;
+    wireBack(back);
+    const b = document.getElementById('invretry'); if (b) b.onclick = () => { invErr = ''; invLoad(); render(); };
+    focusFirst();
+  }
   function renderInv(catId){
-    if (!inv) invLoad();
+    if (!inv && !invErr) invLoad();
+    else if (inv && route().a === 'inv' && !catId && !invBusy) invLoad();   // refresh quietly each time the list opens
     const c = catId ? invCats().find(x => x.id === catId) : null;
-    if (!inv) { app.innerHTML = header('📦 Inventory', '#/') + `<div class="scroll"><div class="empty">Loading…</div></div>`; wireBack('#/'); return; }
+    if (!inv) return invWait('#/');
     if (!c) {
       const rows = invCats().map(k => { const n = invItems().filter(i => i.cat === k.id).length; if (!n) return '';
         return `<div class="row menu"><button class="main" data-invc="${k.id}"><span><span class="icon">${esc(k.ic || '📦')}</span>${esc(k.name)}</span><span class="sub">${n}</span></button></div>`; }).join('');
@@ -1381,7 +1494,7 @@
     invPhotoLoad(); focusFirst();
   }
   function renderInvItem(id){
-    if (!inv) { invLoad(); app.innerHTML = header('📦 Inventory', '#/inv') + `<div class="scroll"><div class="empty">Loading…</div></div>`; wireBack('#/inv'); return; }
+    if (!inv) { if (!invErr) invLoad(); return invWait('#/inv'); }
     const it = invItems().find(x => x.id === id);
     if (!it) { app.innerHTML = header('📦 Inventory', '#/inv') + `<div class="scroll"><div class="empty">That item isn’t here anymore.</div></div>`; wireBack('#/inv'); return; }
     const c = invCats().find(x => x.id === it.cat) || {ic:'📦', name:''};
